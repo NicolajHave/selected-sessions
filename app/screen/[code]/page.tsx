@@ -10,6 +10,7 @@ import {
   type Question,
   type Team,
 } from '@/lib/supabase/client';
+import { Logo } from '@/components/shared/Logo';
 
 interface CategoryWithQuestions extends Category {
   questions: Question[];
@@ -189,12 +190,10 @@ export default function ScreenPage() {
   if (gameState?.show_leaderboard) {
     return (
       <main className="min-h-screen bg-ink text-paper p-12 flex flex-col">
-        <header className="flex justify-between items-center mb-16">
-          <p className="text-sm uppercase tracking-widest text-stone-400">
-            Selected Sessions · {game.code}
-          </p>
-          <p className="text-sm uppercase tracking-widest text-stone-400">
-            Leaderboard
+        <header className="flex justify-between items-start mb-16">
+          <Logo size="md" variant="white" />
+          <p className="text-sm uppercase tracking-[0.3em] text-stone-400">
+            Code · {game.code} · Leaderboard
           </p>
         </header>
 
@@ -227,12 +226,10 @@ export default function ScreenPage() {
   if (currentQuestion) {
     return (
       <main className="min-h-screen bg-paper text-ink p-12 flex flex-col">
-        <header className="flex justify-between items-center mb-12">
-          <p className="text-sm uppercase tracking-widest text-stone-500">
-            Selected Sessions · {game.code}
-          </p>
-          <p className="text-sm uppercase tracking-widest text-stone-500">
-            {currentQuestion.points} points · {currentQuestion.type}
+        <header className="flex justify-between items-start mb-12">
+          <Logo size="md" />
+          <p className="text-sm uppercase tracking-[0.3em] text-stone-500">
+            Code · {game.code} · {currentQuestion.points} pts
           </p>
         </header>
 
@@ -300,18 +297,19 @@ export default function ScreenPage() {
   // ---- Default: Board view ----
   return (
     <main className="min-h-screen bg-paper text-ink p-12 flex flex-col">
-      <header className="flex justify-between items-center mb-12">
-        <div>
-          <p className="text-sm uppercase tracking-widest text-stone-500">
-            Selected Sessions
+      <header className="flex justify-between items-start mb-12">
+        <Logo size="md" />
+        <div className="text-right">
+          <p className="text-sm uppercase tracking-[0.3em] text-stone-500">
+            Join at this URL
           </p>
-          <p className="font-serif text-2xl mt-1">
-            Join with code: <span className="italic">{game.code}</span>
+          <p className="font-serif text-3xl mt-1">
+            Code · <span className="italic">{game.code}</span>
+          </p>
+          <p className="text-xs uppercase tracking-[0.3em] text-stone-500 mt-3">
+            {teams.length} teams in the room
           </p>
         </div>
-        <p className="text-sm uppercase tracking-widest text-stone-500">
-          {teams.length} teams · waiting for next question
-        </p>
       </header>
 
       <div className="flex-1 flex flex-col justify-center">

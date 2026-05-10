@@ -22,29 +22,30 @@ export default function Home() {
 
   return (
     <main className="min-h-screen flex flex-col">
-      <header className="px-8 py-6 flex justify-between items-center border-b border-stone-200">
-        <Logo size="sm" />
+      <header className="px-8 py-6 flex justify-between items-center">
+        <span className="text-[11px] uppercase tracking-[0.3em] text-stone-500">
+          Internal edition
+        </span>
         <a
           href="/host"
-          className="text-xs uppercase tracking-widest text-stone-500 hover:text-ink transition-colors"
+          className="text-[11px] uppercase tracking-[0.3em] text-stone-500 hover:text-ink transition-colors"
         >
           Host
         </a>
       </header>
 
-      <div className="flex-1 flex items-center justify-center px-8 py-16">
+      <div className="flex-1 flex flex-col items-center justify-center px-8 pb-12">
         <div className="max-w-md w-full">
-          <div className="mb-12">
-            <p className="text-xs uppercase tracking-widest text-stone-500 mb-4">
-              A live music quiz experience
-            </p>
-            <h1 className="font-serif text-5xl md:text-6xl leading-tight tracking-tight">
-              Selected
-              <br />
-              <span className="italic">Sessions</span>
-            </h1>
+          {/* Hero: logo + Sessions */}
+          <div className="flex justify-center mb-12">
+            <Logo size="xl" align="center" />
           </div>
 
+          <p className="text-center text-[11px] uppercase tracking-[0.3em] text-stone-500 mb-12">
+            A live music quiz · curated for the team day
+          </p>
+
+          {/* Join form */}
           <form onSubmit={handleJoin} className="space-y-8">
             <Input
               label="Game code"
@@ -57,25 +58,21 @@ export default function Home() {
               placeholder="DEMO"
               autoFocus
               maxLength={6}
-              className="uppercase tracking-widest text-2xl"
+              className="uppercase tracking-[0.3em] text-2xl text-center"
             />
 
-            {error && <p className="text-sm text-clay">{error}</p>}
+            {error && <p className="text-sm text-clay text-center">{error}</p>}
 
             <Button type="submit" size="lg" className="w-full">
               Join the session
             </Button>
           </form>
-
-          <p className="mt-16 text-xs uppercase tracking-widest text-stone-400">
-            Curated for the team day
-          </p>
         </div>
       </div>
 
-      <footer className="px-8 py-6 border-t border-stone-200 text-center">
-        <p className="text-xs uppercase tracking-widest text-stone-400">
-          Selected Sessions — Internal Edition
+      <footer className="px-8 py-6 text-center">
+        <p className="text-[10px] uppercase tracking-[0.4em] text-stone-400">
+          Selected · B2B Communication
         </p>
       </footer>
     </main>

@@ -78,7 +78,7 @@ export default function JoinPage() {
   if (loading) {
     return (
       <main className="min-h-screen flex items-center justify-center">
-        <p className="text-xs uppercase tracking-widest text-stone-400">
+        <p className="text-[11px] uppercase tracking-[0.3em] text-stone-400">
           Loading...
         </p>
       </main>
@@ -88,11 +88,11 @@ export default function JoinPage() {
   if (error && !game) {
     return (
       <main className="min-h-screen flex flex-col items-center justify-center px-8 text-center">
-        <Logo size="md" />
+        <Logo size="md" align="center" />
         <p className="mt-12 text-stone-600">{error}</p>
         <a
           href="/"
-          className="mt-8 text-xs uppercase tracking-widest text-ink underline underline-offset-4"
+          className="mt-8 text-[11px] uppercase tracking-[0.3em] text-ink underline underline-offset-4"
         >
           Back to start
         </a>
@@ -102,17 +102,17 @@ export default function JoinPage() {
 
   return (
     <main className="min-h-screen flex flex-col">
-      <header className="px-8 py-6 flex justify-between items-center border-b border-stone-200">
+      <header className="px-6 py-5 flex justify-between items-center">
         <Logo size="sm" />
-        <span className="text-xs uppercase tracking-widest text-stone-500">
+        <span className="text-[11px] uppercase tracking-[0.3em] text-stone-500">
           Code · {code}
         </span>
       </header>
 
-      <div className="flex-1 flex items-center justify-center px-8 py-16">
+      <div className="flex-1 flex items-center justify-center px-6 py-12">
         <div className="max-w-md w-full">
           <div className="mb-12">
-            <p className="text-xs uppercase tracking-widest text-stone-500 mb-4">
+            <p className="text-[11px] uppercase tracking-[0.3em] text-stone-500 mb-4">
               Step one
             </p>
             <h1 className="font-serif text-4xl md:text-5xl leading-tight tracking-tight">
@@ -149,7 +149,7 @@ export default function JoinPage() {
 
           {teams.length > 0 && (
             <div className="mt-16">
-              <p className="text-xs uppercase tracking-widest text-stone-500 mb-4">
+              <p className="text-[11px] uppercase tracking-[0.3em] text-stone-500 mb-4">
                 Already in the room ({teams.length})
               </p>
               <ul className="space-y-2">
