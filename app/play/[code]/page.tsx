@@ -13,6 +13,7 @@ import {
 import { Logo } from '@/components/shared/Logo';
 import { Button } from '@/components/shared/Button';
 import { Input } from '@/components/shared/Input';
+import { SelectedSessionsLoader } from '@/components/SelectedSessionsLoader';
 
 export default function PlayPage() {
   const params = useParams();
@@ -202,13 +203,7 @@ export default function PlayPage() {
   };
 
   if (loading) {
-    return (
-      <main className="min-h-screen flex items-center justify-center">
-        <p className="text-xs uppercase tracking-widest text-stone-400">
-          Loading...
-        </p>
-      </main>
-    );
+    return <SelectedSessionsLoader srLabel="Joining the session" />;
   }
 
   return (
@@ -253,6 +248,15 @@ export default function PlayPage() {
             <p className="mt-8 text-stone-500 text-sm">
               The host is preparing the next question.
             </p>
+            <div className="mt-10">
+              <SelectedSessionsLoader
+                fullScreen={false}
+                showLogo={false}
+                size="sm"
+                background="transparent"
+                srLabel="Preparing the next round"
+              />
+            </div>
           </div>
         )}
 
@@ -296,6 +300,15 @@ export default function PlayPage() {
                 <p className="mt-6 text-sm text-stone-500">
                   Sit tight — the host will reveal soon.
                 </p>
+                <div className="mt-8">
+                  <SelectedSessionsLoader
+                    fullScreen={false}
+                    showLogo={false}
+                    size="sm"
+                    background="transparent"
+                    srLabel="Awaiting reveal"
+                  />
+                </div>
               </div>
             ) : gameState?.answers_open ? (
               <form onSubmit={handleSubmit} className="space-y-6">

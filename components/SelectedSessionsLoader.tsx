@@ -6,24 +6,59 @@ interface SelectedSessionsLoaderProps {
   /**
    * When true (default), the loader covers the full viewport with a fixed
    * white overlay (intro / page-transition use). When false, it renders
-   * inline at full container height (suitable for in-flow loading blocks).
+   * inline within its parent — suitable for embedded "waiting" states.
    */
   fullScreen?: boolean;
   /**
-   * Optional accessible label describing the current loading context,
-   * e.g. "Starting the session", "Preparing next round". Not shown
-   * visually — used for screen readers only.
+   * When true (default), show the centered SELECTED logo + "Sessions" label.
+   * Set to false when the parent already shows the brand (e.g. in a header)
+   * and you only want the motion accent.
+   */
+  showLogo?: boolean;
+  /**
+   * Visual size. 'lg' (default) for intro / full-screen use.
+   * 'sm' for inline / embedded use beneath other copy.
+   */
+  size?: 'sm' | 'lg';
+  /**
+   * Background. 'white' (default) for true overlay; 'transparent' lets the
+   * loader sit on top of the existing page background (e.g. paper).
+   */
+  background?: 'white' | 'transparent';
+  /**
+   * Optional accessible label describing the current loading context.
+   * Screen-reader only.
    */
   srLabel?: string;
 }
 
+const SIZES = {
+  sm: {
+    stage: 'w-[200px] h-[200px] sm:w-[260px] sm:h-[260px]',
+    logo: 'w-[140px] sm:w-[180px]',
+    sessionsText: 'text-[9px] sm:text-[10px]',
+    wave: 'mt-6 sm:mt-8 w-[140px] sm:w-[180px]',
+  },
+  lg: {
+    stage: 'w-[320px] h-[320px] sm:w-[440px] sm:h-[440px]',
+    logo: 'w-[220px] sm:w-[300px]',
+    sessionsText: 'text-[10px] sm:text-[11px]',
+    wave: 'mt-10 sm:mt-14 w-[180px] sm:w-[240px]',
+  },
+};
+
 export function SelectedSessionsLoader({
   fullScreen = true,
+  showLogo = true,
+  size = 'lg',
+  background = 'white',
   srLabel = 'Selected Sessions',
 }: SelectedSessionsLoaderProps) {
+  const dims = SIZES[size];
+  const bgClass = background === 'white' ? 'bg-white' : 'bg-transparent';
   const wrapperClass = fullScreen
-    ? 'fixed inset-0 z-50 flex items-center justify-center bg-white'
-    : 'relative w-full min-h-screen flex items-center justify-center bg-white';
+    ? `fixed inset-0 z-50 flex items-center justify-center ${bgClass}`
+    : `relative w-full flex items-center justify-center ${bgClass}`;
 
   return (
     <div
@@ -36,7 +71,7 @@ export function SelectedSessionsLoader({
 
       <div className="relative flex flex-col items-center justify-center px-8">
         {/* Composition stage: arcs orbit around the centered logo */}
-        <div className="relative flex items-center justify-center w-[320px] h-[320px] sm:w-[440px] sm:h-[440px]">
+        <div className={`relative flex items-center justify-center ${dims.stage}`}>
           {/* Outer ring with broken segments */}
           <svg
             viewBox="0 0 480 480"
@@ -104,25 +139,34 @@ export function SelectedSessionsLoader({
             />
           </svg>
 
-          {/* Logo + Sessions label, centered above arcs */}
-          <div className="relative z-10 flex flex-col items-center">
-            <Image
-              src="/logo-black.png"
-              alt="Selected"
-              width={600}
-              height={Math.round(600 * (622 / 2902))}
-              priority
-              className="w-[220px] sm:w-[300px] h-auto select-none"
-              draggable={false}
+          {showLogo ? (
+            <div className="relative z-10 flex flex-col items-center">
+              <Image
+                src="/logo-black.png"
+                alt="Selected"
+                width={600}
+                height={Math.round(600 * (622 / 2902))}
+                priority
+                className={`${dims.logo} h-auto select-none`}
+                draggable={false}
+              />
+              <span
+                className={`mt-3 ${dims.sessionsText} uppercase tracking-[0.4em] text-ink/80`}
+              >
+                Sessions
+              </span>
+            </div>
+          ) : (
+            // Quiet center mark — keeps eye anchored without competing with arcs
+            <span
+              className="relative z-10 block w-[6px] h-[6px] rounded-full bg-ink/70"
+              aria-hidden="true"
             />
-            <span className="mt-3 text-[10px] sm:text-[11px] uppercase tracking-[0.4em] text-ink/80">
-              Sessions
-            </span>
-          </div>
+          )}
         </div>
 
         {/* Subtle waveform pulsing below */}
-        <div className="mt-10 sm:mt-14 w-[180px] sm:w-[240px]">
+        <div className={dims.wave}>
           <svg
             viewBox="0 0 240 28"
             className="w-full h-7 ss-wave-pulse"
