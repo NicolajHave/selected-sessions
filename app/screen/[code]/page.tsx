@@ -363,7 +363,6 @@ export default function ScreenPage() {
               <SelectedSessionsLoader
                 fullScreen={false}
                 size="sm"
-                showLogo={false}
                 background="transparent"
                 srLabel="Audio playing on the Big Screen"
               />
