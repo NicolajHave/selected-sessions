@@ -48,11 +48,16 @@ select c.id, points, type::question_type, prompt, answer, host_note from c, (val
 with c as (select id from categories where name = 'Guess the Artist')
 insert into questions (category_id, points, type, prompt, answer, host_note)
 select c.id, points, type::question_type, prompt, answer, host_note from c, (values
-  (100, 'audio', 'Hvem synger dette?', 'Host indsætter', 'Nem opvarmer.'),
-  (200, 'audio', 'Hvilken artist er dette?', 'Host indsætter', null),
-  (300, 'classic', 'Denne artist har samarbejdet med både Versace og Loewe. Hvem?', 'Eksempel: Beyoncé', 'Host justerer.'),
-  (400, 'audio', 'Identificér artisten på 3 sekunder.', 'Host indsætter', 'Lyninstinkt.'),
-  (500, 'risk', 'RISK: Navngiv artisten ud fra ét enkelt billede (uden lyd).', 'Host indsætter', 'Visuelt risk-felt.')
+  (100, 'classic', 'Hvem er dette?', 'Kato',
+   'Image question. Big Screen shows Kato_Billede1.jpg; reveal swaps to Kato_Billede2.jpg and plays a 15s clip.'),
+  (200, 'audio', 'Hvem lavede dette nummer?', 'Elton John - Tiny Dancer',
+   'Tiny Dancer plays on the Big Screen on open (max 120s). Reveal plays a separate 15s clip.'),
+  (300, 'classic', 'Hvem åbnede Orange Scene i 2025?', 'Annika',
+   'Text-only. Reveal plays "Blodigt (feat. Annika)" from 0:59 for 15s.'),
+  (400, 'audio', 'Who did this song?', 'Swedish House Mafia & Coldplay - Every Teardrop is a Waterfall',
+   'Plays from 1:08 for 60s on open. Reveal plays from 4:42 for 15s.'),
+  (500, 'audio', 'Who did this song?', 'Queen - Fat Bottomed Girls',
+   'Plays from 0:00 for 95s on open. Reveal plays from 2:15 for 15s.')
 ) as v(points, type, prompt, answer, host_note);
 
 with c as (select id from categories where name = 'Selected or Rejected')
