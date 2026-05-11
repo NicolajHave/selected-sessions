@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import {
   supabase,
@@ -11,6 +11,12 @@ import {
   type Team,
 } from '@/lib/supabase/client';
 import { Logo } from '@/components/shared/Logo';
+import { SelectedSessionsLoader } from '@/components/SelectedSessionsLoader';
+import { useAudioClip } from '@/lib/audio/useAudioClip';
+import {
+  getGuessTheArtistEntry,
+  type GuessTheArtistEntry,
+} from '@/lib/quiz/guess-the-artist';
 
 interface CategoryWithQuestions extends Category {
   questions: Question[];
@@ -26,6 +32,19 @@ export default function ScreenPage() {
   const [teams, setTeams] = useState<Team[]>([]);
   const [currentQuestion, setCurrentQuestion] = useState<Question | null>(null);
   const [loading, setLoading] = useState(true);
+  const [audioEnabled, setAudioEnabled] = useState(false);
+
+  const { play, stop, primeAudio } = useAudioClip();
+
+  // Look up rich GTA metadata for the current question (or null if N/A).
+  const gtaEntry: GuessTheArtistEntry | null = useMemo(() => {
+    if (!currentQuestion) return null;
+    const cat = categories.find((c) => c.id === currentQuestion.category_id);
+    return getGuessTheArtistEntry(cat?.name, currentQuestion.points);
+  }, [currentQuestion, categories]);
+
+  // Track which audio target was last triggered so state churn doesn't restart it.
+  const lastAudioKeyRef = useRef<string>('');
 
   const reloadQuestions = useCallback(async (gameId: string) => {
     const { data: cats } = await supabase
@@ -176,6 +195,52 @@ export default function ScreenPage() {
     };
   }, [game, reloadQuestions]);
 
+  // Realtime: audio control broadcast from host (transient, no DB write).
+  // The host emits `stop_audio` on `audio_control:<gameId>` when stopping early.
+  useEffect(() => {
+    if (!game) return;
+    const channel = supabase
+      .channel(`audio_control:${game.id}`)
+      .on('broadcast', { event: 'stop_audio' }, () => {
+        lastAudioKeyRef.current = `stopped:${Date.now()}`;
+        stop();
+      })
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [game, stop]);
+
+  // GTA audio orchestration. Plays open clip when a question opens (if defined),
+  // switches to the reveal clip when answers are revealed, stops on back-to-board.
+  useEffect(() => {
+    if (!audioEnabled) return;
+    if (!currentQuestion || !gtaEntry) {
+      if (lastAudioKeyRef.current && !lastAudioKeyRef.current.startsWith('stopped')) {
+        stop();
+        lastAudioKeyRef.current = '';
+      }
+      return;
+    }
+
+    const revealed = !!gameState?.answer_revealed;
+    let key = '';
+    if (revealed && gtaEntry.revealAudio) {
+      key = `${currentQuestion.id}:reveal`;
+    } else if (!revealed && gtaEntry.openAudio) {
+      key = `${currentQuestion.id}:open`;
+    }
+
+    if (key && key !== lastAudioKeyRef.current) {
+      lastAudioKeyRef.current = key;
+      const clip = revealed ? gtaEntry.revealAudio! : gtaEntry.openAudio!;
+      play(clip);
+    } else if (!key && lastAudioKeyRef.current && !lastAudioKeyRef.current.startsWith('stopped')) {
+      lastAudioKeyRef.current = '';
+      stop();
+    }
+  }, [audioEnabled, currentQuestion, gtaEntry, gameState?.answer_revealed, play, stop]);
+
   if (loading || !game) {
     return (
       <main className="min-h-screen flex items-center justify-center bg-paper">
@@ -186,10 +251,37 @@ export default function ScreenPage() {
     );
   }
 
+  // Audio enable gate — must appear regardless of which view we're in.
+  // Browsers require a user gesture before .play() is allowed; once primed,
+  // all subsequent programmatic playbacks during the session are permitted.
+  const audioGate = !audioEnabled ? (
+    <button
+      onClick={() => {
+        primeAudio();
+        setAudioEnabled(true);
+      }}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-paper/95 backdrop-blur-sm cursor-pointer"
+    >
+      <div className="text-center px-8">
+        <p className="text-xs uppercase tracking-[0.4em] text-stone-500 mb-6">
+          Big screen
+        </p>
+        <p className="font-serif text-4xl md:text-5xl mb-8">
+          Tap to <span className="italic">enable audio</span>
+        </p>
+        <p className="text-sm text-stone-500 max-w-md mx-auto">
+          Browsers require a click before audio can autoplay. One tap here
+          unlocks playback for the entire session.
+        </p>
+      </div>
+    </button>
+  ) : null;
+
   // ---- Leaderboard view ----
   if (gameState?.show_leaderboard) {
     return (
       <main className="min-h-screen bg-ink text-paper p-12 flex flex-col">
+        {audioGate}
         <header className="flex justify-between items-start mb-16">
           <Logo size="md" variant="white" />
           <p className="text-sm uppercase tracking-[0.3em] text-stone-400">
@@ -224,8 +316,20 @@ export default function ScreenPage() {
 
   // ---- Active question view ----
   if (currentQuestion) {
+    const revealed = !!gameState?.answer_revealed;
+    const displayPrompt = gtaEntry?.prompt ?? currentQuestion.prompt;
+    const displayAnswer = gtaEntry?.answer ?? currentQuestion.answer;
+    const imageSrc = gtaEntry
+      ? revealed
+        ? gtaEntry.revealedImage
+        : gtaEntry.initialImage
+      : null;
+    const isGtaAudioQuestion = !!gtaEntry?.openAudio;
+
     return (
-      <main className="min-h-screen bg-paper text-ink p-12 flex flex-col">
+      <main className="min-h-screen bg-paper text-ink p-12 flex flex-col relative">
+        {audioGate}
+
         <header className="flex justify-between items-start mb-12">
           <Logo size="md" />
           <p className="text-sm uppercase tracking-[0.3em] text-stone-500">
@@ -234,11 +338,40 @@ export default function ScreenPage() {
         </header>
 
         <div className="flex-1 flex flex-col justify-center max-w-6xl mx-auto w-full">
-          <h1 className="font-serif text-6xl md:text-8xl leading-[1.05] tracking-tight mb-16">
-            {currentQuestion.prompt}
+          <h1 className="font-serif text-6xl md:text-8xl leading-[1.05] tracking-tight mb-12">
+            {displayPrompt}
           </h1>
 
-          {currentQuestion.audio_url && (
+          {/* GTA image (initial or revealed) */}
+          {gtaEntry?.type === 'image' && imageSrc && (
+            <div className="mb-12">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={encodeURI(imageSrc)}
+                alt={revealed ? displayAnswer : 'Guess the artist'}
+                className="max-h-[55vh] w-auto mx-auto object-contain"
+                onError={(e) => {
+                  (e.currentTarget as HTMLImageElement).style.display = 'none';
+                }}
+              />
+            </div>
+          )}
+
+          {/* GTA audio question — show the Selected Sessions loader as visual */}
+          {isGtaAudioQuestion && !revealed && (
+            <div className="mb-12">
+              <SelectedSessionsLoader
+                fullScreen={false}
+                size="sm"
+                showLogo={false}
+                background="transparent"
+                srLabel="Audio playing on the Big Screen"
+              />
+            </div>
+          )}
+
+          {/* Legacy native audio for any non-GTA question that still uses audio_url */}
+          {!gtaEntry && currentQuestion.audio_url && (
             <div className="mb-12">
               <p className="text-sm uppercase tracking-widest text-stone-500 mb-4">
                 Audio
@@ -251,13 +384,13 @@ export default function ScreenPage() {
             </div>
           )}
 
-          {gameState?.answer_revealed ? (
+          {revealed ? (
             <div className="border-t border-ink pt-8">
               <p className="text-sm uppercase tracking-widest text-stone-500 mb-4">
                 Answer
               </p>
               <p className="font-serif italic text-5xl md:text-7xl">
-                {currentQuestion.answer}
+                {displayAnswer}
               </p>
             </div>
           ) : (
@@ -297,6 +430,7 @@ export default function ScreenPage() {
   // ---- Default: Board view ----
   return (
     <main className="min-h-screen bg-paper text-ink p-12 flex flex-col">
+      {audioGate}
       <header className="flex justify-between items-start mb-12">
         <Logo size="md" />
         <div className="text-right">

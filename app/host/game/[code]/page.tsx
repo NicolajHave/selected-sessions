@@ -14,6 +14,7 @@ import {
 } from '@/lib/supabase/client';
 import { Logo } from '@/components/shared/Logo';
 import { Button } from '@/components/shared/Button';
+import { getGuessTheArtistEntry } from '@/lib/quiz/guess-the-artist';
 
 interface CategoryWithQuestions extends Category {
   questions: Question[];
@@ -225,6 +226,17 @@ export default function HostGamePage() {
     });
   }
 
+  // Broadcasts a transient "stop audio" command to the Big Screen.
+  // No DB write — uses Supabase Realtime broadcast on a per-game channel.
+  async function stopBigScreenAudio() {
+    if (!game) return;
+    const channel = supabase.channel(`audio_control:${game.id}`);
+    await channel.subscribe();
+    await channel.send({ type: 'broadcast', event: 'stop_audio', payload: {} });
+    // Tear down right away — broadcast doesn't need to persist.
+    setTimeout(() => supabase.removeChannel(channel), 300);
+  }
+
   async function markAnswered(answered: boolean) {
     if (!currentQuestion || !game) return;
     await fetch(`/api/games/${game.code}/state`, {
@@ -362,73 +374,133 @@ export default function HostGamePage() {
                 </p>
               </div>
 
-              <div className="mb-8">
-                <h2 className="font-serif text-3xl md:text-4xl leading-tight tracking-tight mb-6">
-                  {currentQuestion.prompt}
-                </h2>
+              {(() => {
+                const cat = categories.find(
+                  (c) => c.id === currentQuestion.category_id,
+                );
+                const gta = getGuessTheArtistEntry(
+                  cat?.name,
+                  currentQuestion.points,
+                );
+                const displayPrompt = gta?.prompt ?? currentQuestion.prompt;
+                const displayAnswer = gta?.answer ?? currentQuestion.answer;
+                const hasOpenAudio = !!gta?.openAudio;
 
-                {currentQuestion.audio_url && (
-                  <div className="mb-4">
-                    <p className="text-xs uppercase tracking-widest text-stone-500 mb-2">
-                      Audio cue
-                    </p>
-                    <audio controls src={currentQuestion.audio_url} className="w-full" />
-                  </div>
-                )}
+                return (
+                  <>
+                    <div className="mb-8">
+                      <h2 className="font-serif text-3xl md:text-4xl leading-tight tracking-tight mb-6">
+                        {displayPrompt}
+                      </h2>
 
-                {currentQuestion.host_note && (
-                  <div className="bg-stone-100 p-4 mb-4">
-                    <p className="text-xs uppercase tracking-widest text-stone-500 mb-1">
-                      Host note
-                    </p>
-                    <p className="text-sm text-stone-700">
-                      {currentQuestion.host_note}
-                    </p>
-                  </div>
-                )}
+                      {/* GTA: audio plays on Big Screen only. Show indicator, not a player. */}
+                      {gta ? (
+                        <div className="bg-stone-100 p-4 mb-4">
+                          <p className="text-xs uppercase tracking-widest text-stone-500 mb-1">
+                            Big screen behavior
+                          </p>
+                          <p className="text-sm text-stone-700">
+                            {hasOpenAudio
+                              ? 'Audio plays automatically on the Big Screen when you select this question. Use "Stop audio" below to cut it short.'
+                              : gta.type === 'image'
+                                ? 'Image shown on the Big Screen. Reveal will swap to the second image and play a short clip.'
+                                : 'Text-only on open. Reveal will play a short clip on the Big Screen.'}
+                          </p>
+                        </div>
+                      ) : (
+                        currentQuestion.audio_url && (
+                          <div className="mb-4">
+                            <p className="text-xs uppercase tracking-widest text-stone-500 mb-2">
+                              Audio cue
+                            </p>
+                            <audio
+                              controls
+                              src={currentQuestion.audio_url}
+                              className="w-full"
+                            />
+                          </div>
+                        )
+                      )}
 
-                <div className="border-t border-ink pt-4 mt-6">
-                  <p className="text-xs uppercase tracking-widest text-stone-500 mb-2">
-                    Correct answer
-                  </p>
-                  <p className="font-serif italic text-2xl">
-                    {currentQuestion.answer}
-                  </p>
-                </div>
-              </div>
+                      {currentQuestion.host_note && (
+                        <div className="bg-stone-100 p-4 mb-4">
+                          <p className="text-xs uppercase tracking-widest text-stone-500 mb-1">
+                            Host note
+                          </p>
+                          <p className="text-sm text-stone-700">
+                            {currentQuestion.host_note}
+                          </p>
+                        </div>
+                      )}
 
-              {/* Action bar */}
-              <div className="flex flex-wrap gap-3 mb-8 pb-8 border-b border-stone-200">
-                <Button
-                  variant={gameState?.answers_open ? 'primary' : 'secondary'}
-                  size="sm"
-                  onClick={() =>
-                    callApi('set_answers_open', {
-                      open: !gameState?.answers_open,
-                    })
-                  }
-                >
-                  {gameState?.answers_open ? 'Lock answers' : 'Open answers'}
-                </Button>
-                <Button
-                  variant={gameState?.answer_revealed ? 'primary' : 'secondary'}
-                  size="sm"
-                  onClick={() =>
-                    callApi('set_revealed', {
-                      revealed: !gameState?.answer_revealed,
-                    })
-                  }
-                >
-                  {gameState?.answer_revealed ? 'Hide answer' : 'Reveal answer'}
-                </Button>
-                <Button
-                  variant={currentQuestion.is_answered ? 'primary' : 'secondary'}
-                  size="sm"
-                  onClick={() => markAnswered(!currentQuestion.is_answered)}
-                >
-                  {currentQuestion.is_answered ? 'Reopen field' : 'Mark used'}
-                </Button>
-              </div>
+                      <div className="border-t border-ink pt-4 mt-6">
+                        <p className="text-xs uppercase tracking-widest text-stone-500 mb-2">
+                          Correct answer
+                        </p>
+                        <p className="font-serif italic text-2xl">
+                          {displayAnswer}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Action bar */}
+                    <div className="flex flex-wrap gap-3 mb-8 pb-8 border-b border-stone-200">
+                      <Button
+                        variant={
+                          gameState?.answers_open ? 'primary' : 'secondary'
+                        }
+                        size="sm"
+                        onClick={() =>
+                          callApi('set_answers_open', {
+                            open: !gameState?.answers_open,
+                          })
+                        }
+                      >
+                        {gameState?.answers_open
+                          ? 'Lock answers'
+                          : 'Open answers'}
+                      </Button>
+                      <Button
+                        variant={
+                          gameState?.answer_revealed ? 'primary' : 'secondary'
+                        }
+                        size="sm"
+                        onClick={() =>
+                          callApi('set_revealed', {
+                            revealed: !gameState?.answer_revealed,
+                          })
+                        }
+                      >
+                        {gameState?.answer_revealed
+                          ? 'Hide answer'
+                          : 'Reveal answer'}
+                      </Button>
+                      {gta && (
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={stopBigScreenAudio}
+                        >
+                          Stop audio
+                        </Button>
+                      )}
+                      <Button
+                        variant={
+                          currentQuestion.is_answered ? 'primary' : 'secondary'
+                        }
+                        size="sm"
+                        onClick={() =>
+                          markAnswered(!currentQuestion.is_answered)
+                        }
+                      >
+                        {currentQuestion.is_answered
+                          ? 'Reopen field'
+                          : 'Mark used'}
+                      </Button>
+                    </div>
+                  </>
+                );
+              })()}
 
               {/* Submissions + scoring */}
               <div>
