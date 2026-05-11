@@ -84,9 +84,9 @@ export function SelectedSessionsLoader({
               r="232"
               fill="none"
               stroke="#0E0E0E"
-              strokeOpacity="0.2"
+              strokeOpacity="0.25"
               vectorEffect="non-scaling-stroke"
-              strokeWidth="1"
+              strokeWidth="1.5"
             />
             <circle
               cx="240"
@@ -94,9 +94,9 @@ export function SelectedSessionsLoader({
               r="232"
               fill="none"
               stroke="#0E0E0E"
-              strokeOpacity="0.55"
+              strokeOpacity="0.7"
               vectorEffect="non-scaling-stroke"
-              strokeWidth="1"
+              strokeWidth="1.75"
               strokeDasharray="140 380 60 1000"
               strokeLinecap="round"
             />
@@ -114,10 +114,10 @@ export function SelectedSessionsLoader({
               r="200"
               fill="none"
               stroke="#0E0E0E"
-              strokeOpacity="0.55"
+              strokeOpacity="0.65"
               vectorEffect="non-scaling-stroke"
-              strokeWidth="1"
-              strokeDasharray="1 9"
+              strokeWidth="1.5"
+              strokeDasharray="1.5 10"
               strokeLinecap="round"
             />
           </svg>
@@ -132,9 +132,9 @@ export function SelectedSessionsLoader({
               d="M 240 65 A 175 175 0 0 1 415 240"
               fill="none"
               stroke="#0E0E0E"
-              strokeOpacity="0.4"
+              strokeOpacity="0.5"
               vectorEffect="non-scaling-stroke"
-              strokeWidth="1"
+              strokeWidth="1.5"
               strokeLinecap="round"
             />
           </svg>
@@ -165,21 +165,23 @@ export function SelectedSessionsLoader({
           )}
         </div>
 
-        {/* Subtle waveform pulsing below */}
+        {/* Audio-signal waveform — breathes (scaleY/opacity) AND dashes flow along the curve */}
         <div className={dims.wave}>
           <svg
             viewBox="0 0 240 28"
-            className="w-full h-7 ss-wave-pulse"
+            className="w-full h-7 ss-wave-pulse overflow-visible"
             aria-hidden="true"
           >
             <path
               d="M 0 14 Q 15 4, 30 14 T 60 14 T 90 14 T 120 14 T 150 14 T 180 14 T 210 14 T 240 14"
               fill="none"
               stroke="#0E0E0E"
-              strokeOpacity="0.55"
-              strokeWidth="1"
+              strokeOpacity="0.7"
+              strokeWidth="1.5"
               strokeLinecap="round"
+              strokeDasharray="4 3"
               vectorEffect="non-scaling-stroke"
+              className="ss-wave-flow"
             />
           </svg>
         </div>
