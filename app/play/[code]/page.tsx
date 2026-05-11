@@ -251,7 +251,6 @@ export default function PlayPage() {
             <div className="mt-10">
               <SelectedSessionsLoader
                 fullScreen={false}
-                showLogo={false}
                 size="sm"
                 background="transparent"
                 srLabel="Preparing the next round"
@@ -303,7 +302,6 @@ export default function PlayPage() {
                 <div className="mt-8">
                   <SelectedSessionsLoader
                     fullScreen={false}
-                    showLogo={false}
                     size="sm"
                     background="transparent"
                     srLabel="Awaiting reveal"
