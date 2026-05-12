@@ -237,6 +237,33 @@ export default function HostGamePage() {
     setTimeout(() => supabase.removeChannel(channel), 300);
   }
 
+  async function resetGame() {
+    if (!game) return;
+    const ok = window.confirm(
+      'Reset the session?\n\nThis will:\n• Remove every team and their answers\n• Re-open every question on the board\n• Clear current question, reveal and leaderboard\n\nThe game code stays the same so players can rejoin.',
+    );
+    if (!ok) return;
+
+    const res = await fetch(`/api/games/${game.code}/state`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'reset_game' }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      console.error('Reset failed:', err);
+      window.alert('Reset failed. Check the console.');
+      return;
+    }
+
+    const updated = await res.json();
+    if (updated.gameState) setGameState(updated.gameState);
+    setCurrentQuestion(null);
+    setSubmissions([]);
+    await reloadQuestions(game.id);
+    await reloadTeams(game.id);
+  }
+
   async function markAnswered(answered: boolean) {
     if (!currentQuestion || !game) return;
     await fetch(`/api/games/${game.code}/state`, {
@@ -581,7 +608,7 @@ export default function HostGamePage() {
         </div>
 
         {/* ---- Sidebar: leaderboard ---- */}
-        <aside className="px-6 py-6 bg-stone-50">
+        <aside className="px-6 py-6 bg-stone-50 flex flex-col">
           <p className="text-xs uppercase tracking-widest text-stone-500 mb-4">
             Leaderboard
           </p>
@@ -605,6 +632,22 @@ export default function HostGamePage() {
               ))}
             </ul>
           )}
+
+          <div className="mt-auto pt-10">
+            <p className="text-[10px] uppercase tracking-[0.3em] text-stone-400 mb-3">
+              Session
+            </p>
+            <button
+              onClick={resetGame}
+              className="w-full text-left text-xs uppercase tracking-widest text-clay border border-stone-300 hover:border-clay hover:bg-white px-4 py-3 transition-colors"
+            >
+              Reset session
+            </button>
+            <p className="mt-2 text-[11px] text-stone-500 leading-relaxed">
+              Removes all teams, clears scores, re-opens every question. Game
+              code stays the same.
+            </p>
+          </div>
         </aside>
       </div>
     </main>
