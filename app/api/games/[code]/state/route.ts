@@ -153,6 +153,48 @@ export async function PATCH(
       return NextResponse.json({ team: updated });
     }
 
+    case 'reset_game': {
+      // Wipe teams (submissions cascade), reopen every question, clear state.
+      // Keeps the game row, categories and questions themselves intact.
+      const { error: teamsErr } = await supabaseAdmin
+        .from('teams')
+        .delete()
+        .eq('game_id', game.id);
+      if (teamsErr)
+        return NextResponse.json({ error: teamsErr.message }, { status: 500 });
+
+      const { data: cats } = await supabaseAdmin
+        .from('categories')
+        .select('id')
+        .eq('game_id', game.id);
+      const categoryIds = (cats ?? []).map((c) => c.id);
+      if (categoryIds.length > 0) {
+        const { error: qErr } = await supabaseAdmin
+          .from('questions')
+          .update({ is_answered: false })
+          .in('category_id', categoryIds);
+        if (qErr)
+          return NextResponse.json({ error: qErr.message }, { status: 500 });
+      }
+
+      const { data: state, error: stateErr } = await supabaseAdmin
+        .from('game_state')
+        .update({
+          current_question_id: null,
+          answers_open: false,
+          answer_revealed: false,
+          show_leaderboard: false,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('game_id', game.id)
+        .select()
+        .single();
+      if (stateErr)
+        return NextResponse.json({ error: stateErr.message }, { status: 500 });
+
+      return NextResponse.json({ gameState: state, reset: true });
+    }
+
     default:
       return NextResponse.json({ error: 'unknown action' }, { status: 400 });
   }
