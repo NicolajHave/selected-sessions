@@ -9,16 +9,9 @@
  * exactly "Guess the Artist".
  */
 
-export interface AudioClipSpec {
-  /** Public path. May contain spaces / parentheses. Will be encoded at playback. */
-  src: string;
-  /** Where in the file to start playback, in seconds. */
-  startAt: number;
-  /** Total playback duration in seconds before the clip is stopped. */
-  duration: number;
-  /** Optional fade-out duration in seconds (counted off the END of `duration`). */
-  fadeOut?: number;
-}
+import type { AudioClipSpec } from '@/lib/audio/types';
+
+export type { AudioClipSpec };
 
 export interface GuessTheArtistEntry {
   points: number;
@@ -75,7 +68,7 @@ export const GUESS_THE_ARTIST: Record<number, GuessTheArtistEntry> = {
     type: 'text',
     revealAudio: {
       src: '/quiz-assets/audio/Blodigt (feat. Annika).mp3',
-      startAt: 59,
+      startAt: 58,
       duration: 15,
       fadeOut: 5,
     },
@@ -93,7 +86,7 @@ export const GUESS_THE_ARTIST: Record<number, GuessTheArtistEntry> = {
     },
     revealAudio: {
       src: '/quiz-assets/audio/Every Teardrop Is A Waterfall (Coldplay Vs. Swedish House Mafia).mp3',
-      startAt: 282,
+      startAt: 283,
       duration: 15,
       fadeOut: 5,
     },

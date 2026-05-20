@@ -153,6 +153,59 @@ export async function PATCH(
       return NextResponse.json({ team: updated });
     }
 
+    case 'buy_hint': {
+      // Subtract the hint cost from the team and record the purchase so the
+      // team's own player screen can reveal the private hint.
+      const { team_id, question_id, cost = 100 } = body;
+      if (!team_id || !question_id)
+        return NextResponse.json(
+          { error: 'team_id and question_id required' },
+          { status: 400 },
+        );
+
+      const { data: team, error: teamErr } = await supabaseAdmin
+        .from('teams')
+        .select('*')
+        .eq('id', team_id)
+        .single();
+      if (teamErr || !team)
+        return NextResponse.json({ error: 'team not found' }, { status: 404 });
+
+      // Avoid double-charging if the hint was already bought for this question.
+      const { data: existing } = await supabaseAdmin
+        .from('team_question_hints')
+        .select('id')
+        .eq('team_id', team_id)
+        .eq('question_id', question_id)
+        .maybeSingle();
+      if (existing) {
+        return NextResponse.json({ team, alreadyBought: true });
+      }
+
+      const { error: hintErr } = await supabaseAdmin
+        .from('team_question_hints')
+        .insert({
+          game_id: game.id,
+          team_id,
+          question_id,
+          hint_type: 'paid_hint',
+          cost: Number(cost),
+        });
+      if (hintErr)
+        return NextResponse.json({ error: hintErr.message }, { status: 500 });
+
+      const { data: updated, error: updErr } = await supabaseAdmin
+        .from('teams')
+        .update({ score: team.score - Number(cost) })
+        .eq('id', team_id)
+        .select()
+        .single();
+      if (updErr)
+        return NextResponse.json({ error: updErr.message }, { status: 500 });
+
+      return NextResponse.json({ team: updated, bought: true });
+    }
+
     case 'reset_game': {
       // Wipe teams (submissions cascade), reopen every question, clear state.
       // Keeps the game row, categories and questions themselves intact.

@@ -17,6 +17,12 @@ import {
   getGuessTheArtistEntry,
   type GuessTheArtistEntry,
 } from '@/lib/quiz/guess-the-artist';
+import {
+  getSelectedBangersEntry,
+  toClip as sbToClip,
+  type SelectedBangersEntry,
+} from '@/lib/quiz/selected-bangers';
+import type { AudioClipSpec } from '@/lib/audio/types';
 
 interface CategoryWithQuestions extends Category {
   questions: Question[];
@@ -36,12 +42,36 @@ export default function ScreenPage() {
 
   const { play, stop, primeAudio } = useAudioClip();
 
-  // Look up rich GTA metadata for the current question (or null if N/A).
+  const currentCategoryName = useMemo(() => {
+    if (!currentQuestion) return undefined;
+    return categories.find((c) => c.id === currentQuestion.category_id)?.name;
+  }, [currentQuestion, categories]);
+
+  // Look up rich metadata for the current question (or null if N/A).
   const gtaEntry: GuessTheArtistEntry | null = useMemo(() => {
     if (!currentQuestion) return null;
-    const cat = categories.find((c) => c.id === currentQuestion.category_id);
-    return getGuessTheArtistEntry(cat?.name, currentQuestion.points);
-  }, [currentQuestion, categories]);
+    return getGuessTheArtistEntry(currentCategoryName, currentQuestion.points);
+  }, [currentQuestion, currentCategoryName]);
+
+  const sbEntry: SelectedBangersEntry | null = useMemo(() => {
+    if (!currentQuestion) return null;
+    return getSelectedBangersEntry(currentCategoryName, currentQuestion.points);
+  }, [currentQuestion, currentCategoryName]);
+
+  // Unified audio clips across both rich categories.
+  const openClip: AudioClipSpec | undefined = useMemo(() => {
+    if (gtaEntry?.openAudio) return gtaEntry.openAudio;
+    if (sbEntry?.questionAudio) return sbToClip(sbEntry.questionAudio);
+    return undefined;
+  }, [gtaEntry, sbEntry]);
+
+  const revealClip: AudioClipSpec | undefined = useMemo(() => {
+    if (gtaEntry?.revealAudio) return gtaEntry.revealAudio;
+    if (sbEntry?.revealAudio) return sbToClip(sbEntry.revealAudio);
+    return undefined;
+  }, [gtaEntry, sbEntry]);
+
+  const hasRichEntry = !!gtaEntry || !!sbEntry;
 
   // Track which audio target was last triggered so state churn doesn't restart it.
   const lastAudioKeyRef = useRef<string>('');
@@ -211,11 +241,12 @@ export default function ScreenPage() {
     };
   }, [game, stop]);
 
-  // GTA audio orchestration. Plays open clip when a question opens (if defined),
-  // switches to the reveal clip when answers are revealed, stops on back-to-board.
+  // Audio orchestration (GTA + Selected Bangers). Plays the open clip when a
+  // question opens (if defined), switches to the reveal clip when answers are
+  // revealed, and stops on back-to-board.
   useEffect(() => {
     if (!audioEnabled) return;
-    if (!currentQuestion || !gtaEntry) {
+    if (!currentQuestion || !hasRichEntry) {
       if (lastAudioKeyRef.current && !lastAudioKeyRef.current.startsWith('stopped')) {
         stop();
         lastAudioKeyRef.current = '';
@@ -225,21 +256,33 @@ export default function ScreenPage() {
 
     const revealed = !!gameState?.answer_revealed;
     let key = '';
-    if (revealed && gtaEntry.revealAudio) {
+    if (revealed && revealClip) {
       key = `${currentQuestion.id}:reveal`;
-    } else if (!revealed && gtaEntry.openAudio) {
+    } else if (!revealed && openClip) {
       key = `${currentQuestion.id}:open`;
     }
 
     if (key && key !== lastAudioKeyRef.current) {
       lastAudioKeyRef.current = key;
-      const clip = revealed ? gtaEntry.revealAudio! : gtaEntry.openAudio!;
-      play(clip);
-    } else if (!key && lastAudioKeyRef.current && !lastAudioKeyRef.current.startsWith('stopped')) {
+      play(revealed ? revealClip! : openClip!);
+    } else if (
+      !key &&
+      lastAudioKeyRef.current &&
+      !lastAudioKeyRef.current.startsWith('stopped')
+    ) {
       lastAudioKeyRef.current = '';
       stop();
     }
-  }, [audioEnabled, currentQuestion, gtaEntry, gameState?.answer_revealed, play, stop]);
+  }, [
+    audioEnabled,
+    currentQuestion,
+    hasRichEntry,
+    openClip,
+    revealClip,
+    gameState?.answer_revealed,
+    play,
+    stop,
+  ]);
 
   if (loading || !game) {
     return (
@@ -317,14 +360,19 @@ export default function ScreenPage() {
   // ---- Active question view ----
   if (currentQuestion) {
     const revealed = !!gameState?.answer_revealed;
-    const displayPrompt = gtaEntry?.prompt ?? currentQuestion.prompt;
-    const displayAnswer = gtaEntry?.answer ?? currentQuestion.answer;
+    const displayTitle = sbEntry?.title;
+    const displayPrompt =
+      gtaEntry?.prompt ?? sbEntry?.prompt ?? currentQuestion.prompt;
+    const displayAnswer =
+      gtaEntry?.answer ?? sbEntry?.answer ?? currentQuestion.answer;
+    const trackInfo = sbEntry?.trackInfo;
     const imageSrc = gtaEntry
       ? revealed
         ? gtaEntry.revealedImage
         : gtaEntry.initialImage
       : null;
-    const isGtaAudioQuestion = !!gtaEntry?.openAudio;
+    // Show the animated loader while an open audio clip is playing.
+    const showAudioVisual = !!openClip && !revealed;
 
     return (
       <main className="min-h-screen bg-paper text-ink p-12 flex flex-col relative">
@@ -338,9 +386,21 @@ export default function ScreenPage() {
         </header>
 
         <div className="flex-1 flex flex-col justify-center max-w-6xl mx-auto w-full">
-          <h1 className="font-serif text-6xl md:text-8xl leading-[1.05] tracking-tight mb-12">
+          {displayTitle && (
+            <p className="text-sm uppercase tracking-[0.4em] text-stone-500 mb-6">
+              {displayTitle}
+            </p>
+          )}
+
+          <h1 className="font-serif text-6xl md:text-8xl leading-[1.05] tracking-tight mb-8">
             {displayPrompt}
           </h1>
+
+          {trackInfo && (
+            <p className="font-serif italic text-3xl md:text-4xl text-stone-600 mb-10">
+              {trackInfo}
+            </p>
+          )}
 
           {/* GTA image (initial or revealed) */}
           {gtaEntry?.type === 'image' && imageSrc && (
@@ -357,8 +417,8 @@ export default function ScreenPage() {
             </div>
           )}
 
-          {/* GTA audio question — show the Selected Sessions loader as visual */}
-          {isGtaAudioQuestion && !revealed && (
+          {/* Audio question — show the Selected Sessions loader as visual */}
+          {showAudioVisual && (
             <div className="mb-12">
               <SelectedSessionsLoader
                 fullScreen={false}
@@ -369,8 +429,8 @@ export default function ScreenPage() {
             </div>
           )}
 
-          {/* Legacy native audio for any non-GTA question that still uses audio_url */}
-          {!gtaEntry && currentQuestion.audio_url && (
+          {/* Legacy native audio for any plain question that still uses audio_url */}
+          {!hasRichEntry && currentQuestion.audio_url && (
             <div className="mb-12">
               <p className="text-sm uppercase tracking-widest text-stone-500 mb-4">
                 Audio
