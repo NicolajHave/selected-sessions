@@ -75,7 +75,7 @@ export const GUESS_THE_ARTIST: Record<number, GuessTheArtistEntry> = {
     type: 'text',
     revealAudio: {
       src: '/quiz-assets/audio/Blodigt (feat. Annika).mp3',
-      startAt: 59,
+      startAt: 58,
       duration: 15,
       fadeOut: 5,
     },
@@ -93,7 +93,7 @@ export const GUESS_THE_ARTIST: Record<number, GuessTheArtistEntry> = {
     },
     revealAudio: {
       src: '/quiz-assets/audio/Every Teardrop Is A Waterfall (Coldplay Vs. Swedish House Mafia).mp3',
-      startAt: 282,
+      startAt: 283,
       duration: 15,
       fadeOut: 5,
     },

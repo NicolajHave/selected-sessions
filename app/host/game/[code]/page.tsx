@@ -492,11 +492,18 @@ export default function HostGamePage() {
                           gameState?.answer_revealed ? 'primary' : 'secondary'
                         }
                         size="sm"
-                        onClick={() =>
-                          callApi('set_revealed', {
-                            revealed: !gameState?.answer_revealed,
-                          })
-                        }
+                        onClick={() => {
+                          const revealing = !gameState?.answer_revealed;
+                          if (
+                            revealing &&
+                            !window.confirm(
+                              'Reveal the answer on the Big Screen now?',
+                            )
+                          ) {
+                            return;
+                          }
+                          callApi('set_revealed', { revealed: revealing });
+                        }}
                       >
                         {gameState?.answer_revealed
                           ? 'Hide answer'
