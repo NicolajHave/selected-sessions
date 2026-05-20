@@ -70,3 +70,13 @@ export interface GameState {
   show_leaderboard: boolean;
   updated_at: string;
 }
+
+export interface TeamQuestionHint {
+  id: string;
+  game_id: string;
+  team_id: string;
+  question_id: string;
+  hint_type: string;
+  cost: number;
+  created_at: string;
+}

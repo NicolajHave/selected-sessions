@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef } from 'react';
-import type { AudioClipSpec } from '@/lib/quiz/guess-the-artist';
+import type { AudioClipSpec } from '@/lib/audio/types';
 
 /**
  * Hook for the Big Screen to play short audio clips with:

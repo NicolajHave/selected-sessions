@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -15,6 +15,10 @@ import {
 import { Logo } from '@/components/shared/Logo';
 import { Button } from '@/components/shared/Button';
 import { getGuessTheArtistEntry } from '@/lib/quiz/guess-the-artist';
+import {
+  getSelectedBangersEntry,
+  segmentDuration,
+} from '@/lib/quiz/selected-bangers';
 
 interface CategoryWithQuestions extends Category {
   questions: Question[];
@@ -31,6 +35,17 @@ export default function HostGamePage() {
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [currentQuestion, setCurrentQuestion] = useState<Question | null>(null);
   const [loading, setLoading] = useState(true);
+  const [hintTeamId, setHintTeamId] = useState<string>('');
+
+  // Auto-close timer for Selected Bangers questions with autoCloseOnEnd.
+  const autoCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearAutoCloseTimer = useCallback(() => {
+    if (autoCloseTimerRef.current) {
+      clearTimeout(autoCloseTimerRef.current);
+      autoCloseTimerRef.current = null;
+    }
+  }, []);
 
   // ---- Data loaders ----
 
@@ -183,6 +198,9 @@ export default function HostGamePage() {
     };
   }, [game, reloadTeams]);
 
+  // Clear any pending auto-close timer on unmount.
+  useEffect(() => clearAutoCloseTimer, [clearAutoCloseTimer]);
+
   // ---- Host actions ----
 
   async function callApi(action: string, body: object = {}) {
@@ -206,15 +224,52 @@ export default function HostGamePage() {
 
   async function selectQuestion(q: Question) {
     if (q.is_answered) return;
+    clearAutoCloseTimer();
+    setHintTeamId('');
     await callApi('select_question', { question_id: q.id });
     await loadCurrentQuestion(q.id);
     await reloadSubmissions(q.id);
+
+    // Selected Bangers audio questions: open answers immediately and schedule an
+    // auto-close when the question clip ends (matches Big Screen playback).
+    const cat = categories.find((c) => c.id === q.category_id);
+    const sb = getSelectedBangersEntry(cat?.name, q.points);
+    if (sb?.questionAudio?.autoCloseOnEnd) {
+      const seconds = segmentDuration(sb.questionAudio);
+      await callApi('set_answers_open', { open: true });
+      autoCloseTimerRef.current = setTimeout(() => {
+        callApi('set_answers_open', { open: false });
+        autoCloseTimerRef.current = null;
+      }, seconds * 1000);
+    }
   }
 
   async function backToBoard() {
+    clearAutoCloseTimer();
+    setHintTeamId('');
     await callApi('back_to_board');
     setCurrentQuestion(null);
     setSubmissions([]);
+  }
+
+  async function buyHint(teamId: string, cost: number) {
+    if (!game || !currentQuestion || !teamId) return;
+    const res = await fetch(`/api/games/${game.code}/state`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'buy_hint',
+        team_id: teamId,
+        question_id: currentQuestion.id,
+        cost,
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      console.error('Buy hint failed:', err);
+      return;
+    }
+    await reloadTeams(game.id);
   }
 
   async function awardPoints(teamId: string, points: number) {
@@ -409,29 +464,52 @@ export default function HostGamePage() {
                   cat?.name,
                   currentQuestion.points,
                 );
-                const displayPrompt = gta?.prompt ?? currentQuestion.prompt;
-                const displayAnswer = gta?.answer ?? currentQuestion.answer;
-                const hasOpenAudio = !!gta?.openAudio;
+                const sb = getSelectedBangersEntry(
+                  cat?.name,
+                  currentQuestion.points,
+                );
+                const isRich = !!gta || !!sb;
+                const displayTitle = sb?.title;
+                const displayPrompt =
+                  gta?.prompt ?? sb?.prompt ?? currentQuestion.prompt;
+                const displayAnswer =
+                  gta?.answer ?? sb?.answer ?? currentQuestion.answer;
+                const hasOpenAudio = !!gta?.openAudio || !!sb?.questionAudio;
 
                 return (
                   <>
                     <div className="mb-8">
+                      {displayTitle && (
+                        <p className="text-xs uppercase tracking-[0.3em] text-stone-500 mb-2">
+                          {displayTitle}
+                        </p>
+                      )}
                       <h2 className="font-serif text-3xl md:text-4xl leading-tight tracking-tight mb-6">
                         {displayPrompt}
                       </h2>
 
-                      {/* GTA: audio plays on Big Screen only. Show indicator, not a player. */}
-                      {gta ? (
+                      {sb?.trackInfo && (
+                        <p className="font-serif italic text-xl text-stone-600 mb-4">
+                          {sb.trackInfo}
+                        </p>
+                      )}
+
+                      {/* Rich categories: audio plays on Big Screen only. */}
+                      {isRich ? (
                         <div className="bg-stone-100 p-4 mb-4">
                           <p className="text-xs uppercase tracking-widest text-stone-500 mb-1">
                             Big screen behavior
                           </p>
                           <p className="text-sm text-stone-700">
-                            {hasOpenAudio
-                              ? 'Audio plays automatically on the Big Screen when you select this question. Use "Stop audio" below to cut it short.'
-                              : gta.type === 'image'
-                                ? 'Image shown on the Big Screen. Reveal will swap to the second image and play a short clip.'
-                                : 'Text-only on open. Reveal will play a short clip on the Big Screen.'}
+                            {sb
+                              ? sb.questionAudio?.autoCloseOnEnd
+                                ? 'Audio plays automatically on the Big Screen and answers auto-close when the clip ends. Use "Stop audio" to cut it short.'
+                                : 'Audio plays automatically on the Big Screen when you select this question.'
+                              : hasOpenAudio
+                                ? 'Audio plays automatically on the Big Screen when you select this question. Use "Stop audio" below to cut it short.'
+                                : gta?.type === 'image'
+                                  ? 'Image shown on the Big Screen. Reveal will swap to the second image and play a short clip.'
+                                  : 'Text-only on open. Reveal will play a short clip on the Big Screen.'}
                           </p>
                         </div>
                       ) : (
@@ -449,7 +527,18 @@ export default function HostGamePage() {
                         )
                       )}
 
-                      {currentQuestion.host_note && (
+                      {sb?.acceptedGuidance && (
+                        <div className="bg-clay/10 border border-clay/30 p-4 mb-4">
+                          <p className="text-xs uppercase tracking-widest text-clay mb-1">
+                            Accepted answer
+                          </p>
+                          <p className="text-sm text-stone-700">
+                            {sb.acceptedGuidance}
+                          </p>
+                        </div>
+                      )}
+
+                      {currentQuestion.host_note && !isRich && (
                         <div className="bg-stone-100 p-4 mb-4">
                           <p className="text-xs uppercase tracking-widest text-stone-500 mb-1">
                             Host note
@@ -509,7 +598,7 @@ export default function HostGamePage() {
                           ? 'Hide answer'
                           : 'Reveal answer'}
                       </Button>
-                      {gta && (
+                      {hasOpenAudio && (
                         <Button
                           variant="secondary"
                           size="sm"
@@ -609,6 +698,82 @@ export default function HostGamePage() {
                     </div>
                   </div>
                 )}
+
+                {/* Selected Bangers extra mechanics: +50 bonus / paid hint */}
+                {(() => {
+                  const cat = categories.find(
+                    (c) => c.id === currentQuestion.category_id,
+                  );
+                  const sb = getSelectedBangersEntry(
+                    cat?.name,
+                    currentQuestion.points,
+                  );
+                  if (!sb) return null;
+
+                  return (
+                    <>
+                      {sb.bonus && (
+                        <div className="mt-8 pt-6 border-t border-stone-200">
+                          <p className="text-xs uppercase tracking-widest text-stone-500 mb-1">
+                            Bonus — {sb.bonus.label}
+                          </p>
+                          <p className="text-xs text-stone-500 mb-3">
+                            Award only if a team names both song titles and both
+                            artists.
+                          </p>
+                          <div className="flex flex-wrap gap-2">
+                            {teams.map((t) => (
+                              <button
+                                key={t.id}
+                                onClick={() =>
+                                  awardPoints(t.id, sb.bonus!.points)
+                                }
+                                className="border border-clay/40 text-clay px-3 py-2 text-xs uppercase tracking-widest hover:bg-clay/10"
+                              >
+                                {t.name} +{sb.bonus!.points}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {sb.hint && (
+                        <div className="mt-8 pt-6 border-t border-stone-200">
+                          <p className="text-xs uppercase tracking-widest text-stone-500 mb-1">
+                            Paid hint (−{sb.hint.cost})
+                          </p>
+                          <p className="text-xs text-stone-500 mb-3">
+                            Subtracts {sb.hint.cost} points and reveals the hint
+                            image on that team&rsquo;s own screen.
+                          </p>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <select
+                              value={hintTeamId}
+                              onChange={(e) => setHintTeamId(e.target.value)}
+                              className="border border-stone-300 px-3 py-2 text-sm bg-white"
+                            >
+                              <option value="">Select a team…</option>
+                              {teams.map((t) => (
+                                <option key={t.id} value={t.id}>
+                                  {t.name}
+                                </option>
+                              ))}
+                            </select>
+                            <button
+                              disabled={!hintTeamId}
+                              onClick={() =>
+                                buyHint(hintTeamId, sb.hint!.cost)
+                              }
+                              className="bg-ink text-paper px-4 py-2 text-xs uppercase tracking-widest hover:opacity-90 disabled:opacity-30"
+                            >
+                              Buy hint (−{sb.hint.cost})
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
             </div>
           )}

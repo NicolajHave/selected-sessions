@@ -8,14 +8,14 @@ insert into games (code, status) values ('DEMO', 'lobby');
 with g as (select id from games where code = 'DEMO')
 insert into categories (game_id, name, position)
 select g.id, name, position from g, (values
-  ('Campaign Moodboard', 0),
-  ('Office Anthems', 1),
-  ('Brand Space Bangers', 2),
-  ('Guess the Artist', 3),
-  ('Selected or Rejected', 4)
+  ('Guess the Artist', 0),
+  ('Selected Bangers', 1),
+  ('Selected or Rejected', 2),
+  ('Finish the (Out)fit', 3),
+  ('Archive Sounds', 4)
 ) as v(name, position);
 
-with c as (select id from categories where name = 'Campaign Moodboard')
+with c as (select id from categories where name = 'Finish the (Out)fit')
 insert into questions (category_id, points, type, prompt, answer, host_note)
 select c.id, points, type::question_type, prompt, answer, host_note from c, (values
   (100, 'classic', 'Hvilket årti forbindes mest med Calvin Kleins ikoniske underwear-kampagner?', '1990''erne', 'Klassisk opvarmer.'),
@@ -25,7 +25,7 @@ select c.id, points, type::question_type, prompt, answer, host_note from c, (val
   (500, 'risk', 'RISK: Navngiv 5 modemærker der har samarbejdet med musikartister i 2024.', 'Eksempler: Loewe x Charli XCX, Skims x Usher, Marc Jacobs x Charli, etc.', 'Risk-felt: alt eller intet.')
 ) as v(points, type, prompt, answer, host_note);
 
-with c as (select id from categories where name = 'Office Anthems')
+with c as (select id from categories where name = 'Archive Sounds')
 insert into questions (category_id, points, type, prompt, answer, host_note)
 select c.id, points, type::question_type, prompt, answer, host_note from c, (values
   (100, 'classic', 'Hvilken kunstner står bag "Bad Guy"?', 'Billie Eilish', null),
@@ -35,14 +35,21 @@ select c.id, points, type::question_type, prompt, answer, host_note from c, (val
   (500, 'risk', 'RISK: Nævn 3 sange der har været #1 i Danmark de seneste 12 måneder.', 'Host vurderer baseret på aktuelle hitlister', 'Risk-felt.')
 ) as v(points, type, prompt, answer, host_note);
 
-with c as (select id from categories where name = 'Brand Space Bangers')
+with c as (select id from categories where name = 'Selected Bangers')
 insert into questions (category_id, points, type, prompt, answer, host_note)
 select c.id, points, type::question_type, prompt, answer, host_note from c, (values
-  (100, 'classic', 'Hvilken sang spilles oftest i Selected showrooms? (host bestemmer)', 'Host''s call', 'Sjov åbner.'),
-  (200, 'audio', 'Genkend denne showroom-klassiker.', 'Host indsætter senere', 'Lydfil tilføjes senere.'),
-  (300, 'judgement', 'Skal vi spille mere house eller mere indie i showroomet?', 'Diskussion — bedste argument vinder', 'Lad teams pitche.'),
-  (400, 'classic', 'Hvilken kunstner har optrådt på flest fashion week afterparties i 2024?', 'Eksempel: Charli XCX', 'Host justerer.'),
-  (500, 'risk', 'RISK: Lav en 30-sekunders pitch til en ny showroom-playlist.', 'Host vurderer', 'Risk-felt — kreativitet belønnes.')
+  (100, 'audio', 'Name the track and artist before the drop hits.', 'Levels — Avicii',
+   'The Drop. Plays 1:24–2:24, answers auto-close on clip end.'),
+  (200, 'audio', 'Who made this song, and who is featured on it? Name at least one featured artist.',
+   'Daft Punk — Get Lucky. Featured artists: Pharrell Williams and Nile Rodgers.',
+   'The Groove. Award if they say Daft Punk + at least one of Pharrell / Nile Rodgers.'),
+  (300, 'audio', 'Which two songs are mixed in this track? Name either the song titles or the artists.',
+   'I Like To Move It — Reel 2 Real  &  Temperature — Sean Paul',
+   'The Mashup. +50 bonus if both titles AND both artists.'),
+  (400, 'audio', 'What year was this song released?', '2009',
+   'The Night Club Banger (I Gotta Feeling — Black Eyed Peas). Year slider 2000–2010.'),
+  (500, 'audio', 'Which country is this song from?', 'Italy',
+   'The Origin (Freed From Desire). Teams can buy a private hint for 100 pts.')
 ) as v(points, type, prompt, answer, host_note);
 
 with c as (select id from categories where name = 'Guess the Artist')

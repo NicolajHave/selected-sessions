@@ -9,16 +9,9 @@
  * exactly "Guess the Artist".
  */
 
-export interface AudioClipSpec {
-  /** Public path. May contain spaces / parentheses. Will be encoded at playback. */
-  src: string;
-  /** Where in the file to start playback, in seconds. */
-  startAt: number;
-  /** Total playback duration in seconds before the clip is stopped. */
-  duration: number;
-  /** Optional fade-out duration in seconds (counted off the END of `duration`). */
-  fadeOut?: number;
-}
+import type { AudioClipSpec } from '@/lib/audio/types';
+
+export type { AudioClipSpec };
 
 export interface GuessTheArtistEntry {
   points: number;

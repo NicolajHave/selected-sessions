@@ -14,6 +14,7 @@ import { Logo } from '@/components/shared/Logo';
 import { Button } from '@/components/shared/Button';
 import { Input } from '@/components/shared/Input';
 import { SelectedSessionsLoader } from '@/components/SelectedSessionsLoader';
+import { getSelectedBangersEntry } from '@/lib/quiz/selected-bangers';
 
 export default function PlayPage() {
   const params = useParams();
@@ -28,6 +29,11 @@ export default function PlayPage() {
   const [answer, setAnswer] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [categoryName, setCategoryName] = useState<string | undefined>(
+    undefined
+  );
+  const [hintPurchased, setHintPurchased] = useState(false);
+  const [sliderYear, setSliderYear] = useState<number | null>(null);
 
   const loadCurrentQuestion = useCallback(
     async (questionId: string | null) => {
@@ -35,14 +41,38 @@ export default function PlayPage() {
         setCurrentQuestion(null);
         setMySubmission(null);
         setAnswer('');
+        setCategoryName(undefined);
+        setHintPurchased(false);
+        setSliderYear(null);
         return;
       }
       const { data } = await supabase
         .from('questions')
-        .select('*')
+        .select('*, categories(name)')
         .eq('id', questionId)
         .single();
       setCurrentQuestion(data);
+      // categories is joined as an object via the FK relationship.
+      const catName = (data as { categories?: { name?: string } } | null)
+        ?.categories?.name;
+      setCategoryName(catName);
+    },
+    []
+  );
+
+  const loadHint = useCallback(
+    async (questionId: string | null, teamId: string) => {
+      if (!questionId) {
+        setHintPurchased(false);
+        return;
+      }
+      const { data } = await supabase
+        .from('team_question_hints')
+        .select('id')
+        .eq('question_id', questionId)
+        .eq('team_id', teamId)
+        .maybeSingle();
+      setHintPurchased(!!data);
     },
     []
   );
@@ -113,13 +143,14 @@ export default function PlayPage() {
       if (stateData?.current_question_id) {
         await loadCurrentQuestion(stateData.current_question_id);
         await loadMySubmission(stateData.current_question_id, teamData.id);
+        await loadHint(stateData.current_question_id, teamData.id);
       }
 
       setLoading(false);
     }
 
     init();
-  }, [code, router, loadCurrentQuestion, loadMySubmission]);
+  }, [code, router, loadCurrentQuestion, loadMySubmission, loadHint]);
 
   // Realtime subscription on game_state
   useEffect(() => {
@@ -142,6 +173,7 @@ export default function PlayPage() {
             await loadCurrentQuestion(newState.current_question_id);
             if (team) {
               await loadMySubmission(newState.current_question_id, team.id);
+              await loadHint(newState.current_question_id, team.id);
             }
           }
         }
@@ -151,7 +183,41 @@ export default function PlayPage() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [game, team, currentQuestion?.id, loadCurrentQuestion, loadMySubmission]);
+  }, [
+    game,
+    team,
+    currentQuestion?.id,
+    loadCurrentQuestion,
+    loadMySubmission,
+    loadHint,
+  ]);
+
+  // Realtime: this team's hint purchases (host grants a private hint).
+  useEffect(() => {
+    if (!team) return;
+    const channel = supabase
+      .channel(`team_hints:${team.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'team_question_hints',
+          filter: `team_id=eq.${team.id}`,
+        },
+        (payload) => {
+          const row = payload.new as { question_id?: string };
+          if (row.question_id && row.question_id === currentQuestion?.id) {
+            setHintPurchased(true);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [team, currentQuestion?.id]);
 
   // Realtime subscription on team score
   useEffect(() => {
@@ -178,9 +244,10 @@ export default function PlayPage() {
     };
   }, [team]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent, explicitValue?: string) => {
     e.preventDefault();
-    if (!answer.trim() || !currentQuestion || !team) return;
+    const finalAnswer = (explicitValue ?? answer).trim();
+    if (!finalAnswer || !currentQuestion || !team) return;
 
     setSubmitting(true);
 
@@ -189,7 +256,7 @@ export default function PlayPage() {
       .insert({
         question_id: currentQuestion.id,
         team_id: team.id,
-        answer_text: answer.trim(),
+        answer_text: finalAnswer,
       })
       .select()
       .single();
@@ -260,16 +327,54 @@ export default function PlayPage() {
         )}
 
         {/* Active question */}
-        {!gameState?.show_leaderboard && currentQuestion && (
+        {!gameState?.show_leaderboard && currentQuestion && (() => {
+          const sb = getSelectedBangersEntry(
+            categoryName,
+            currentQuestion.points
+          );
+          const isYearSlider = sb?.type === 'year-slider' && !!sb.slider;
+          const sliderCfg = sb?.slider;
+          // Default the slider to the midpoint once, when entering the question.
+          const yearValue =
+            sliderYear ??
+            (sliderCfg
+              ? Math.round((sliderCfg.min + sliderCfg.max) / 2)
+              : 0);
+
+          return (
           <div className="max-w-md mx-auto">
             <div className="mb-8">
               <p className="text-xs uppercase tracking-widest text-stone-500 mb-2">
-                {currentQuestion.points} points · {currentQuestion.type}
+                {currentQuestion.points} points
               </p>
               <h2 className="font-serif text-2xl leading-snug">
-                {currentQuestion.prompt}
+                {sb?.prompt ?? currentQuestion.prompt}
               </h2>
+              {sb?.trackInfo && (
+                <p className="font-serif italic text-lg text-stone-600 mt-3">
+                  {sb.trackInfo}
+                </p>
+              )}
             </div>
+
+            {/* Private paid hint — only visible to a team that bought it */}
+            {sb?.hint && hintPurchased && (
+              <div className="mb-8 border border-stone-200 p-4">
+                <p className="text-xs uppercase tracking-widest text-stone-500 mb-3">
+                  Your hint
+                </p>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={encodeURI(sb.hint.image)}
+                  alt="Purchased hint"
+                  className="w-full h-auto"
+                  onError={(e) => {
+                    (e.currentTarget as HTMLImageElement).style.display =
+                      'none';
+                  }}
+                />
+              </div>
+            )}
 
             {gameState?.answer_revealed ? (
               <div className="border-t border-ink pt-6">
@@ -277,7 +382,7 @@ export default function PlayPage() {
                   Correct answer
                 </p>
                 <p className="font-serif italic text-2xl">
-                  {currentQuestion.answer}
+                  {sb?.answer ?? currentQuestion.answer}
                 </p>
                 {mySubmission && (
                   <div className="mt-8">
@@ -309,25 +414,62 @@ export default function PlayPage() {
                 </div>
               </div>
             ) : gameState?.answers_open ? (
-              <form onSubmit={handleSubmit} className="space-y-6">
-                <Input
-                  label="Your answer"
-                  type="text"
-                  value={answer}
-                  onChange={(e) => setAnswer(e.target.value)}
-                  autoFocus
-                  maxLength={120}
-                  className="text-lg"
-                />
-                <Button
-                  type="submit"
-                  size="lg"
-                  className="w-full"
-                  disabled={submitting || !answer.trim()}
+              isYearSlider && sliderCfg ? (
+                <form
+                  onSubmit={(e) => handleSubmit(e, String(yearValue))}
+                  className="space-y-8"
                 >
-                  {submitting ? 'Submitting...' : 'Submit answer'}
-                </Button>
-              </form>
+                  <div>
+                    <p className="text-xs uppercase tracking-widest text-stone-500 mb-6">
+                      Drag to your year
+                    </p>
+                    <p className="font-serif text-6xl text-center mb-6">
+                      {yearValue}
+                    </p>
+                    <input
+                      type="range"
+                      min={sliderCfg.min}
+                      max={sliderCfg.max}
+                      step={sliderCfg.step}
+                      value={yearValue}
+                      onChange={(e) => setSliderYear(Number(e.target.value))}
+                      className="w-full accent-ink"
+                    />
+                    <div className="flex justify-between text-xs uppercase tracking-widest text-stone-400 mt-2">
+                      <span>{sliderCfg.min}</span>
+                      <span>{sliderCfg.max}</span>
+                    </div>
+                  </div>
+                  <Button
+                    type="submit"
+                    size="lg"
+                    className="w-full"
+                    disabled={submitting}
+                  >
+                    {submitting ? 'Submitting...' : `Submit ${yearValue}`}
+                  </Button>
+                </form>
+              ) : (
+                <form onSubmit={handleSubmit} className="space-y-6">
+                  <Input
+                    label="Your answer"
+                    type="text"
+                    value={answer}
+                    onChange={(e) => setAnswer(e.target.value)}
+                    autoFocus
+                    maxLength={120}
+                    className="text-lg"
+                  />
+                  <Button
+                    type="submit"
+                    size="lg"
+                    className="w-full"
+                    disabled={submitting || !answer.trim()}
+                  >
+                    {submitting ? 'Submitting...' : 'Submit answer'}
+                  </Button>
+                </form>
+              )
             ) : (
               <div className="border-t border-stone-200 pt-6">
                 <p className="text-xs uppercase tracking-widest text-stone-500 mb-2">
@@ -339,7 +481,8 @@ export default function PlayPage() {
               </div>
             )}
           </div>
-        )}
+          );
+        })()}
       </div>
     </main>
   );
