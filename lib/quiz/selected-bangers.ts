@@ -148,7 +148,7 @@ export const SELECTED_BANGERS: Record<number, SelectedBangersEntry> = {
     prompt: 'Which country is this song from?',
     answer: 'Italy',
     type: 'audio-with-private-hint',
-    hint: { cost: 100, image: '/images/hints/colosseum-sketch.png' },
+    hint: { cost: 100, image: '/images/hints/colosseum-sketch.jpg' },
     questionAudio: {
       src: `${A}/freed-from-desire.mp3`,
       startTime: 0,
