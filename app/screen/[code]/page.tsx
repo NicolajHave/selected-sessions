@@ -10,6 +10,7 @@ import {
   type Question,
   type Team,
 } from '@/lib/supabase/client';
+import { QRCodeSVG } from 'qrcode.react';
 import { Logo } from '@/components/shared/Logo';
 import { SelectedSessionsLoader } from '@/components/SelectedSessionsLoader';
 import { useAudioClip } from '@/lib/audio/useAudioClip';
@@ -39,6 +40,11 @@ export default function ScreenPage() {
   const [currentQuestion, setCurrentQuestion] = useState<Question | null>(null);
   const [loading, setLoading] = useState(true);
   const [audioEnabled, setAudioEnabled] = useState(false);
+  const [origin, setOrigin] = useState('');
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') setOrigin(window.location.origin);
+  }, []);
 
   const { play, stop, primeAudio } = useAudioClip();
 
@@ -320,11 +326,61 @@ export default function ScreenPage() {
     </button>
   ) : null;
 
+  // Join overlay — host toggles this on the Big Screen so players can scan to
+  // join. Shows a live list of teams as they sign in. Sits below the audio gate.
+  const joinUrl = origin ? `${origin}/join/${game.code}` : '';
+  const joinOverlay = gameState?.show_join ? (
+    <div className="fixed inset-0 z-40 flex flex-col items-center justify-center bg-paper px-12">
+      <p className="text-sm uppercase tracking-[0.4em] text-stone-500 mb-10">
+        Scan to join
+      </p>
+      <div className="flex flex-col lg:flex-row items-center gap-16 max-w-6xl w-full justify-center">
+        <div className="flex flex-col items-center">
+          <div className="bg-white p-6 border border-stone-200">
+            {joinUrl && (
+              <QRCodeSVG
+                value={joinUrl}
+                size={320}
+                level="M"
+                fgColor="#0E0E0E"
+                bgColor="#FFFFFF"
+              />
+            )}
+          </div>
+          <p className="mt-8 text-xs uppercase tracking-[0.3em] text-stone-500">
+            Or enter code
+          </p>
+          <p className="font-serif italic text-4xl mt-1">{game.code}</p>
+        </div>
+
+        <div className="min-w-[260px]">
+          <p className="text-xs uppercase tracking-[0.3em] text-stone-500 mb-4">
+            In the room · {teams.length}
+          </p>
+          {teams.length === 0 ? (
+            <p className="font-serif italic text-2xl text-stone-400">
+              Waiting for the first team…
+            </p>
+          ) : (
+            <ul className="space-y-1 max-h-[60vh] overflow-hidden">
+              {teams.map((t) => (
+                <li key={t.id} className="font-serif text-3xl">
+                  {t.name}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+    </div>
+  ) : null;
+
   // ---- Leaderboard view ----
   if (gameState?.show_leaderboard) {
     return (
       <main className="min-h-screen bg-ink text-paper p-12 flex flex-col">
         {audioGate}
+        {joinOverlay}
         <header className="flex justify-between items-start mb-16">
           <Logo size="md" variant="white" />
           <p className="text-sm uppercase tracking-[0.3em] text-stone-400">
@@ -377,6 +433,7 @@ export default function ScreenPage() {
     return (
       <main className="min-h-screen bg-paper text-ink p-12 flex flex-col relative">
         {audioGate}
+        {joinOverlay}
 
         <header className="flex justify-between items-start mb-12">
           <Logo size="md" />
@@ -490,6 +547,7 @@ export default function ScreenPage() {
   return (
     <main className="min-h-screen bg-paper text-ink p-12 flex flex-col">
       {audioGate}
+        {joinOverlay}
       <header className="flex justify-between items-start mb-12">
         <Logo size="md" />
         <div className="text-right">

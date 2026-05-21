@@ -390,18 +390,34 @@ export default function HostGamePage() {
                 <p className="text-xs uppercase tracking-widest text-stone-500">
                   The board
                 </p>
-                <button
-                  onClick={async () => {
-                    await callApi('toggle_leaderboard', {
-                      show: !gameState?.show_leaderboard,
-                    });
-                  }}
-                  className="text-xs uppercase tracking-widest text-stone-500 hover:text-ink transition-colors"
-                >
-                  {gameState?.show_leaderboard
-                    ? 'Hide leaderboard'
-                    : 'Show leaderboard'}
-                </button>
+                <div className="flex items-center gap-5">
+                  <button
+                    onClick={async () => {
+                      await callApi('toggle_join', {
+                        show: !gameState?.show_join,
+                      });
+                    }}
+                    className={`text-xs uppercase tracking-widest transition-colors ${
+                      gameState?.show_join
+                        ? 'text-clay hover:opacity-80'
+                        : 'text-stone-500 hover:text-ink'
+                    }`}
+                  >
+                    {gameState?.show_join ? 'Hide join QR' : 'Show join QR'}
+                  </button>
+                  <button
+                    onClick={async () => {
+                      await callApi('toggle_leaderboard', {
+                        show: !gameState?.show_leaderboard,
+                      });
+                    }}
+                    className="text-xs uppercase tracking-widest text-stone-500 hover:text-ink transition-colors"
+                  >
+                    {gameState?.show_leaderboard
+                      ? 'Hide leaderboard'
+                      : 'Show leaderboard'}
+                  </button>
+                </div>
               </div>
 
               <div className="grid grid-cols-5 gap-px bg-stone-200 border border-stone-200">

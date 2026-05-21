@@ -116,6 +116,23 @@ export async function PATCH(
       return NextResponse.json({ gameState: data });
     }
 
+    case 'toggle_join': {
+      const { show } = body;
+      const { data, error } = await supabaseAdmin
+        .from('game_state')
+        .update({
+          show_join: !!show,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('game_id', game.id)
+        .select()
+        .single();
+
+      if (error)
+        return NextResponse.json({ error: error.message }, { status: 500 });
+      return NextResponse.json({ gameState: data });
+    }
+
     case 'mark_answered': {
       const { question_id, answered } = body;
       const { error } = await supabaseAdmin

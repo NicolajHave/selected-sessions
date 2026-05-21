@@ -13,18 +13,19 @@ export default function Home() {
 
   const handleJoin = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!code.trim()) {
+    const clean = code.trim().toUpperCase().replace(/\s+/g, '');
+    if (!clean) {
       setError('Enter a game code');
       return;
     }
-    router.push(`/join/${code.trim().toUpperCase()}`);
+    router.push(`/join/${clean}`);
   };
 
   return (
     <main className="min-h-screen flex flex-col">
       <header className="px-8 py-6 flex justify-between items-center">
         <span className="text-[11px] uppercase tracking-[0.3em] text-stone-500">
-          Internal edition
+          B2B Teamday
         </span>
         <a
           href="/host"
@@ -55,9 +56,8 @@ export default function Home() {
                 setCode(e.target.value);
                 setError('');
               }}
-              placeholder="DEMO"
               autoFocus
-              maxLength={6}
+              maxLength={16}
               className="uppercase tracking-[0.3em] text-2xl text-center"
             />
 

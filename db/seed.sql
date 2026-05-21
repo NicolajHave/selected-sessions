@@ -3,9 +3,9 @@
 -- Run after schema.sql
 -- ============================================
 
-insert into games (code, status) values ('DEMO', 'lobby');
+insert into games (code, status) values ('B2BTEAMDAY', 'lobby');
 
-with g as (select id from games where code = 'DEMO')
+with g as (select id from games where code = 'B2BTEAMDAY')
 insert into categories (game_id, name, position)
 select g.id, name, position from g, (values
   ('Guess the Artist', 0),
@@ -77,5 +77,5 @@ select c.id, points, type::question_type, prompt, answer, host_note from c, (val
   (500, 'risk', 'RISK: Pitch en helt ny kampagne-idé på 60 sekunder. Teams stemmer.', 'Bedste pitch vinder', 'Risk-felt — peer voting.')
 ) as v(points, type, prompt, answer, host_note);
 
-with g as (select id from games where code = 'DEMO')
+with g as (select id from games where code = 'B2BTEAMDAY')
 insert into game_state (game_id) select id from g;

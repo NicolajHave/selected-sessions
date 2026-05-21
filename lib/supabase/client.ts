@@ -68,6 +68,7 @@ export interface GameState {
   answers_open: boolean;
   answer_revealed: boolean;
   show_leaderboard: boolean;
+  show_join: boolean;
   updated_at: string;
 }
 
