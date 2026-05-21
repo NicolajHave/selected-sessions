@@ -62,6 +62,7 @@ create table game_state (
   answers_open boolean not null default false,
   answer_revealed boolean not null default false,
   show_leaderboard boolean not null default false,
+  show_join boolean not null default false,
   updated_at timestamptz not null default now()
 );
 
