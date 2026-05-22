@@ -23,6 +23,11 @@ import {
   toClip as sbToClip,
   type SelectedBangersEntry,
 } from '@/lib/quiz/selected-bangers';
+import {
+  getSelectedOrRejectedEntry,
+  sorToClip,
+  type SorEntry,
+} from '@/lib/quiz/selected-or-rejected';
 import type { AudioClipSpec } from '@/lib/audio/types';
 
 interface CategoryWithQuestions extends Category {
@@ -70,20 +75,30 @@ export default function ScreenPage() {
     return getSelectedBangersEntry(currentCategoryName, currentQuestion.points);
   }, [currentQuestion, currentCategoryName]);
 
-  // Unified audio clips across both rich categories.
+  const sorEntry: SorEntry | null = useMemo(() => {
+    if (!currentQuestion) return null;
+    return getSelectedOrRejectedEntry(
+      currentCategoryName,
+      currentQuestion.points,
+    );
+  }, [currentQuestion, currentCategoryName]);
+
+  // Unified audio clips across all rich categories.
   const openClip: AudioClipSpec | undefined = useMemo(() => {
     if (gtaEntry?.openAudio) return gtaEntry.openAudio;
     if (sbEntry?.questionAudio) return sbToClip(sbEntry.questionAudio);
+    if (sorEntry?.questionAudio) return sorToClip(sorEntry.questionAudio);
     return undefined;
-  }, [gtaEntry, sbEntry]);
+  }, [gtaEntry, sbEntry, sorEntry]);
 
   const revealClip: AudioClipSpec | undefined = useMemo(() => {
     if (gtaEntry?.revealAudio) return gtaEntry.revealAudio;
     if (sbEntry?.revealAudio) return sbToClip(sbEntry.revealAudio);
+    if (sorEntry?.revealAudio) return sorToClip(sorEntry.revealAudio);
     return undefined;
-  }, [gtaEntry, sbEntry]);
+  }, [gtaEntry, sbEntry, sorEntry]);
 
-  const hasRichEntry = !!gtaEntry || !!sbEntry;
+  const hasRichEntry = !!gtaEntry || !!sbEntry || !!sorEntry;
 
   // Track which audio target was last triggered so state churn doesn't restart it.
   const lastAudioKeyRef = useRef<string>('');
@@ -459,12 +474,20 @@ export default function ScreenPage() {
   // ---- Active question view ----
   if (currentQuestion) {
     const revealed = !!gameState?.answer_revealed;
-    const displayTitle = sbEntry?.title;
+    const displayTitle = sbEntry?.title ?? sorEntry?.title;
     const displayPrompt =
-      gtaEntry?.prompt ?? sbEntry?.prompt ?? currentQuestion.prompt;
+      gtaEntry?.prompt ??
+      sbEntry?.prompt ??
+      sorEntry?.prompt ??
+      currentQuestion.prompt;
+    const sorAnswer = sorEntry
+      ? sorEntry.type === 'majority'
+        ? (gameState?.winning_answer ?? '—')
+        : (sorEntry.correct ?? currentQuestion.answer)
+      : null;
     const displayAnswer =
-      gtaEntry?.answer ?? sbEntry?.answer ?? currentQuestion.answer;
-    const trackInfo = sbEntry?.trackInfo;
+      gtaEntry?.answer ?? sbEntry?.answer ?? sorAnswer ?? currentQuestion.answer;
+    const trackInfo = sbEntry?.trackInfo ?? sorEntry?.track;
     const imageSrc = gtaEntry
       ? revealed
         ? gtaEntry.revealedImage
@@ -495,6 +518,12 @@ export default function ScreenPage() {
           <h1 className="font-serif text-6xl md:text-8xl leading-[1.05] tracking-tight mb-8">
             {displayPrompt}
           </h1>
+
+          {sorEntry?.subPrompt && !revealed && (
+            <p className="text-xl uppercase tracking-[0.3em] text-stone-500 mb-8">
+              {sorEntry.subPrompt}
+            </p>
+          )}
 
           {trackInfo && (
             <p className="font-serif italic text-3xl md:text-4xl text-stone-600 mb-10">
@@ -551,6 +580,11 @@ export default function ScreenPage() {
               <p className="font-serif italic text-5xl md:text-7xl">
                 {displayAnswer}
               </p>
+              {sorEntry?.revealExplanation && (
+                <p className="mt-6 text-2xl text-stone-600 max-w-4xl">
+                  {sorEntry.revealExplanation}
+                </p>
+              )}
             </div>
           ) : (
             <div className="border-t border-stone-300 pt-8">

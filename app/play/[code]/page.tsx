@@ -15,6 +15,10 @@ import { Button } from '@/components/shared/Button';
 import { Input } from '@/components/shared/Input';
 import { SelectedSessionsLoader } from '@/components/SelectedSessionsLoader';
 import { getSelectedBangersEntry } from '@/lib/quiz/selected-bangers';
+import {
+  getSelectedOrRejectedEntry,
+  type SorChoice,
+} from '@/lib/quiz/selected-or-rejected';
 
 export default function PlayPage() {
   const params = useParams();
@@ -244,6 +248,24 @@ export default function PlayPage() {
     };
   }, [team]);
 
+  // Selected/Rejected choice submission (auto-scored on reveal by the host API).
+  const submitChoice = async (choice: SorChoice) => {
+    if (!currentQuestion || !team) return;
+    setSubmitting(true);
+    const { data, error } = await supabase
+      .from('submissions')
+      .insert({
+        question_id: currentQuestion.id,
+        team_id: team.id,
+        answer_text: choice,
+        answer_payload: { answer: choice },
+      })
+      .select()
+      .single();
+    if (!error && data) setMySubmission(data);
+    setSubmitting(false);
+  };
+
   const handleSubmit = async (e: React.FormEvent, explicitValue?: string) => {
     e.preventDefault();
     const finalAnswer = (explicitValue ?? answer).trim();
@@ -332,6 +354,13 @@ export default function PlayPage() {
             categoryName,
             currentQuestion.points
           );
+          const sor = getSelectedOrRejectedEntry(
+            categoryName,
+            currentQuestion.points
+          );
+          // Phase 2: single Selected/Rejected button input (Q100 + Q300).
+          const isSorButtons =
+            sor?.type === 'truefact' || sor?.type === 'majority';
           const isYearSlider = sb?.type === 'year-slider' && !!sb.slider;
           const sliderCfg = sb?.slider;
           // Default the slider to the midpoint once, when entering the question.
@@ -348,8 +377,18 @@ export default function PlayPage() {
                 {currentQuestion.points} points
               </p>
               <h2 className="font-serif text-2xl leading-snug">
-                {sb?.prompt ?? currentQuestion.prompt}
+                {sor?.prompt ?? sb?.prompt ?? currentQuestion.prompt}
               </h2>
+              {sor?.subPrompt && (
+                <p className="text-sm uppercase tracking-[0.2em] text-stone-500 mt-3">
+                  {sor.subPrompt}
+                </p>
+              )}
+              {sor?.track && (
+                <p className="font-serif italic text-lg text-stone-600 mt-3">
+                  {sor.track}
+                </p>
+              )}
               {sb?.trackInfo && (
                 <p className="font-serif italic text-lg text-stone-600 mt-3">
                   {sb.trackInfo}
@@ -382,8 +421,13 @@ export default function PlayPage() {
                   Correct answer
                 </p>
                 <p className="font-serif italic text-2xl">
-                  {sb?.answer ?? currentQuestion.answer}
+                  {sor?.correct ?? sb?.answer ?? currentQuestion.answer}
                 </p>
+                {sor?.revealExplanation && (
+                  <p className="mt-3 text-sm text-stone-600">
+                    {sor.revealExplanation}
+                  </p>
+                )}
                 {mySubmission && (
                   <div className="mt-8">
                     <p className="text-xs uppercase tracking-widest text-stone-500 mb-2">
@@ -414,7 +458,20 @@ export default function PlayPage() {
                 </div>
               </div>
             ) : gameState?.answers_open ? (
-              isYearSlider && sliderCfg ? (
+              isSorButtons ? (
+                <div className="grid grid-cols-1 gap-4">
+                  {(['Selected', 'Rejected'] as SorChoice[]).map((choice) => (
+                    <button
+                      key={choice}
+                      disabled={submitting}
+                      onClick={() => submitChoice(choice)}
+                      className="border-2 border-ink py-8 font-serif text-3xl hover:bg-ink hover:text-paper transition-colors disabled:opacity-40"
+                    >
+                      {choice}
+                    </button>
+                  ))}
+                </div>
+              ) : isYearSlider && sliderCfg ? (
                 <form
                   onSubmit={(e) => handleSubmit(e, String(yearValue))}
                   className="space-y-8"
