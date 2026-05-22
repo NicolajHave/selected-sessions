@@ -36,6 +36,7 @@ export default function HostGamePage() {
   const [currentQuestion, setCurrentQuestion] = useState<Question | null>(null);
   const [loading, setLoading] = useState(true);
   const [hintTeamId, setHintTeamId] = useState<string>('');
+  const [waitingMuted, setWaitingMuted] = useState(false);
 
   // Auto-close timer for Selected Bangers questions with autoCloseOnEnd.
   const autoCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -292,6 +293,20 @@ export default function HostGamePage() {
     setTimeout(() => supabase.removeChannel(channel), 300);
   }
 
+  // Mute / unmute the Big Screen waiting-room music (transient broadcast).
+  async function setWaitingMute(muted: boolean) {
+    if (!game) return;
+    setWaitingMuted(muted);
+    const channel = supabase.channel(`audio_control:${game.id}`);
+    await channel.subscribe();
+    await channel.send({
+      type: 'broadcast',
+      event: 'toggle_waiting_mute',
+      payload: { muted },
+    });
+    setTimeout(() => supabase.removeChannel(channel), 300);
+  }
+
   async function resetGame() {
     if (!game) return;
     const ok = window.confirm(
@@ -391,6 +406,14 @@ export default function HostGamePage() {
                   The board
                 </p>
                 <div className="flex items-center gap-5">
+                  {gameState?.show_join && (
+                    <button
+                      onClick={() => setWaitingMute(!waitingMuted)}
+                      className="text-xs uppercase tracking-widest text-stone-500 hover:text-ink transition-colors"
+                    >
+                      {waitingMuted ? 'Unmute music' : 'Mute music'}
+                    </button>
+                  )}
                   <button
                     onClick={async () => {
                       await callApi('toggle_join', {

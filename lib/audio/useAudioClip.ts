@@ -56,7 +56,8 @@ export function useAudioClip() {
       audio.crossOrigin = 'anonymous';
       // Spaces / parentheses in filenames must be percent-encoded.
       audio.src = encodeURI(clip.src);
-      audio.volume = 1;
+      audio.volume = clip.volume ?? 1;
+      audio.loop = !!clip.loop;
       audioRef.current = audio;
 
       const startAt = Math.max(0, clip.startAt ?? 0);
@@ -75,6 +76,9 @@ export function useAudioClip() {
           // a user gesture; if this still fires, surface for debugging.
           console.warn('[useAudioClip] play() rejected:', err);
         });
+
+        // Looping clips (ambient/waiting music) play until stop() is called.
+        if (clip.loop) return;
 
         if (fadeOutSec > 0) {
           stopTimerRef.current = setTimeout(() => {

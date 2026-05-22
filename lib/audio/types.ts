@@ -8,4 +8,8 @@ export interface AudioClipSpec {
   duration: number;
   /** Optional fade-out duration in seconds, counted off the END of `duration`. */
   fadeOut?: number;
+  /** Loop the clip indefinitely (ignores duration-based stop). For ambient/waiting music. */
+  loop?: boolean;
+  /** Playback volume 0..1 (default 1). */
+  volume?: number;
 }

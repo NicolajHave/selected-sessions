@@ -47,6 +47,12 @@ export default function ScreenPage() {
   }, []);
 
   const { play, stop, primeAudio } = useAudioClip();
+  // Separate player instance for looping waiting-room music (independent of
+  // question audio so the two never fight over a single <audio> element).
+  const { play: playWaiting, stop: stopWaiting } = useAudioClip();
+  const [waitingMuted, setWaitingMuted] = useState(false);
+
+  const WAITING_MUSIC = '/audio/selected-or-rejected/lost-coconut-rise-again.mp3';
 
   const currentCategoryName = useMemo(() => {
     if (!currentQuestion) return undefined;
@@ -232,7 +238,7 @@ export default function ScreenPage() {
   }, [game, reloadQuestions]);
 
   // Realtime: audio control broadcast from host (transient, no DB write).
-  // The host emits `stop_audio` on `audio_control:<gameId>` when stopping early.
+  // The host emits `stop_audio` / `toggle_waiting_mute` on audio_control:<gameId>.
   useEffect(() => {
     if (!game) return;
     const channel = supabase
@@ -241,11 +247,37 @@ export default function ScreenPage() {
         lastAudioKeyRef.current = `stopped:${Date.now()}`;
         stop();
       })
+      .on('broadcast', { event: 'toggle_waiting_mute' }, (msg) => {
+        const muted = !!(msg.payload as { muted?: boolean })?.muted;
+        setWaitingMuted(muted);
+      })
       .subscribe();
     return () => {
       supabase.removeChannel(channel);
     };
   }, [game, stop]);
+
+  // Waiting-room music: soft Lost Coconut loop while the join QR is shown.
+  useEffect(() => {
+    if (!audioEnabled) return;
+    if (gameState?.show_join && !waitingMuted) {
+      playWaiting({
+        src: WAITING_MUSIC,
+        startAt: 0,
+        duration: 0,
+        loop: true,
+        volume: 0.3,
+      });
+    } else {
+      stopWaiting();
+    }
+  }, [
+    audioEnabled,
+    gameState?.show_join,
+    waitingMuted,
+    playWaiting,
+    stopWaiting,
+  ]);
 
   // Audio orchestration (GTA + Selected Bangers). Plays the open clip when a
   // question opens (if defined), switches to the reveal clip when answers are
@@ -371,6 +403,17 @@ export default function ScreenPage() {
             </ul>
           )}
         </div>
+      </div>
+
+      {/* Subtle Selected Sessions motion accent — kept low and unobtrusive */}
+      <div className="absolute bottom-10 left-1/2 -translate-x-1/2 opacity-50 pointer-events-none">
+        <SelectedSessionsLoader
+          fullScreen={false}
+          size="sm"
+          showLogo={false}
+          background="transparent"
+          srLabel="Waiting room"
+        />
       </div>
     </div>
   ) : null;
