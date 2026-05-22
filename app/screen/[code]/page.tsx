@@ -23,6 +23,11 @@ import {
   toClip as sbToClip,
   type SelectedBangersEntry,
 } from '@/lib/quiz/selected-bangers';
+import {
+  getSelectedOrRejectedEntry,
+  sorToClip,
+  type SorEntry,
+} from '@/lib/quiz/selected-or-rejected';
 import type { AudioClipSpec } from '@/lib/audio/types';
 
 interface CategoryWithQuestions extends Category {
@@ -47,6 +52,12 @@ export default function ScreenPage() {
   }, []);
 
   const { play, stop, primeAudio } = useAudioClip();
+  // Separate player instance for looping waiting-room music (independent of
+  // question audio so the two never fight over a single <audio> element).
+  const { play: playWaiting, stop: stopWaiting } = useAudioClip();
+  const [waitingMuted, setWaitingMuted] = useState(false);
+
+  const WAITING_MUSIC = '/audio/selected-or-rejected/lost-coconut-rise-again.mp3';
 
   const currentCategoryName = useMemo(() => {
     if (!currentQuestion) return undefined;
@@ -64,20 +75,30 @@ export default function ScreenPage() {
     return getSelectedBangersEntry(currentCategoryName, currentQuestion.points);
   }, [currentQuestion, currentCategoryName]);
 
-  // Unified audio clips across both rich categories.
+  const sorEntry: SorEntry | null = useMemo(() => {
+    if (!currentQuestion) return null;
+    return getSelectedOrRejectedEntry(
+      currentCategoryName,
+      currentQuestion.points,
+    );
+  }, [currentQuestion, currentCategoryName]);
+
+  // Unified audio clips across all rich categories.
   const openClip: AudioClipSpec | undefined = useMemo(() => {
     if (gtaEntry?.openAudio) return gtaEntry.openAudio;
     if (sbEntry?.questionAudio) return sbToClip(sbEntry.questionAudio);
+    if (sorEntry?.questionAudio) return sorToClip(sorEntry.questionAudio);
     return undefined;
-  }, [gtaEntry, sbEntry]);
+  }, [gtaEntry, sbEntry, sorEntry]);
 
   const revealClip: AudioClipSpec | undefined = useMemo(() => {
     if (gtaEntry?.revealAudio) return gtaEntry.revealAudio;
     if (sbEntry?.revealAudio) return sbToClip(sbEntry.revealAudio);
+    if (sorEntry?.revealAudio) return sorToClip(sorEntry.revealAudio);
     return undefined;
-  }, [gtaEntry, sbEntry]);
+  }, [gtaEntry, sbEntry, sorEntry]);
 
-  const hasRichEntry = !!gtaEntry || !!sbEntry;
+  const hasRichEntry = !!gtaEntry || !!sbEntry || !!sorEntry;
 
   // Track which audio target was last triggered so state churn doesn't restart it.
   const lastAudioKeyRef = useRef<string>('');
@@ -232,7 +253,7 @@ export default function ScreenPage() {
   }, [game, reloadQuestions]);
 
   // Realtime: audio control broadcast from host (transient, no DB write).
-  // The host emits `stop_audio` on `audio_control:<gameId>` when stopping early.
+  // The host emits `stop_audio` / `toggle_waiting_mute` on audio_control:<gameId>.
   useEffect(() => {
     if (!game) return;
     const channel = supabase
@@ -241,11 +262,37 @@ export default function ScreenPage() {
         lastAudioKeyRef.current = `stopped:${Date.now()}`;
         stop();
       })
+      .on('broadcast', { event: 'toggle_waiting_mute' }, (msg) => {
+        const muted = !!(msg.payload as { muted?: boolean })?.muted;
+        setWaitingMuted(muted);
+      })
       .subscribe();
     return () => {
       supabase.removeChannel(channel);
     };
   }, [game, stop]);
+
+  // Waiting-room music: soft Lost Coconut loop while the join QR is shown.
+  useEffect(() => {
+    if (!audioEnabled) return;
+    if (gameState?.show_join && !waitingMuted) {
+      playWaiting({
+        src: WAITING_MUSIC,
+        startAt: 0,
+        duration: 0,
+        loop: true,
+        volume: 0.3,
+      });
+    } else {
+      stopWaiting();
+    }
+  }, [
+    audioEnabled,
+    gameState?.show_join,
+    waitingMuted,
+    playWaiting,
+    stopWaiting,
+  ]);
 
   // Audio orchestration (GTA + Selected Bangers). Plays the open clip when a
   // question opens (if defined), switches to the reveal clip when answers are
@@ -372,6 +419,17 @@ export default function ScreenPage() {
           )}
         </div>
       </div>
+
+      {/* Subtle Selected Sessions motion accent — kept low and unobtrusive */}
+      <div className="absolute bottom-10 left-1/2 -translate-x-1/2 opacity-50 pointer-events-none">
+        <SelectedSessionsLoader
+          fullScreen={false}
+          size="sm"
+          showLogo={false}
+          background="transparent"
+          srLabel="Waiting room"
+        />
+      </div>
     </div>
   ) : null;
 
@@ -416,12 +474,20 @@ export default function ScreenPage() {
   // ---- Active question view ----
   if (currentQuestion) {
     const revealed = !!gameState?.answer_revealed;
-    const displayTitle = sbEntry?.title;
+    const displayTitle = sbEntry?.title ?? sorEntry?.title;
     const displayPrompt =
-      gtaEntry?.prompt ?? sbEntry?.prompt ?? currentQuestion.prompt;
+      gtaEntry?.prompt ??
+      sbEntry?.prompt ??
+      sorEntry?.prompt ??
+      currentQuestion.prompt;
+    const sorAnswer = sorEntry
+      ? sorEntry.type === 'majority'
+        ? (gameState?.winning_answer ?? '—')
+        : (sorEntry.correct ?? currentQuestion.answer)
+      : null;
     const displayAnswer =
-      gtaEntry?.answer ?? sbEntry?.answer ?? currentQuestion.answer;
-    const trackInfo = sbEntry?.trackInfo;
+      gtaEntry?.answer ?? sbEntry?.answer ?? sorAnswer ?? currentQuestion.answer;
+    const trackInfo = sbEntry?.trackInfo ?? sorEntry?.track;
     const imageSrc = gtaEntry
       ? revealed
         ? gtaEntry.revealedImage
@@ -452,6 +518,12 @@ export default function ScreenPage() {
           <h1 className="font-serif text-6xl md:text-8xl leading-[1.05] tracking-tight mb-8">
             {displayPrompt}
           </h1>
+
+          {sorEntry?.subPrompt && !revealed && (
+            <p className="text-xl uppercase tracking-[0.3em] text-stone-500 mb-8">
+              {sorEntry.subPrompt}
+            </p>
+          )}
 
           {trackInfo && (
             <p className="font-serif italic text-3xl md:text-4xl text-stone-600 mb-10">
@@ -508,6 +580,11 @@ export default function ScreenPage() {
               <p className="font-serif italic text-5xl md:text-7xl">
                 {displayAnswer}
               </p>
+              {sorEntry?.revealExplanation && (
+                <p className="mt-6 text-2xl text-stone-600 max-w-4xl">
+                  {sorEntry.revealExplanation}
+                </p>
+              )}
             </div>
           ) : (
             <div className="border-t border-stone-300 pt-8">

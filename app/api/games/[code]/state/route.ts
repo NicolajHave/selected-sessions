@@ -1,6 +1,108 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { isHostAuthenticated } from '@/lib/auth';
 import { supabaseAdmin } from '@/lib/supabase/server';
+import {
+  getSelectedOrRejectedEntry,
+  type SorChoice,
+} from '@/lib/quiz/selected-or-rejected';
+
+type ScoreResult = { scored: boolean; tie?: boolean; winner?: string };
+
+/**
+ * Automatic scoring for "Selected or Rejected" questions, applied on reveal.
+ * Idempotent via questions.auto_scored. Returns {tie:true} for an unresolved
+ * majority tie so the host can pick a winner.
+ */
+async function autoScoreSelectedOrRejected(
+  gameId: string,
+  questionId: string | null,
+  opts: { forcedWinner?: SorChoice } = {},
+): Promise<ScoreResult> {
+  if (!questionId) return { scored: false };
+
+  const { data: question } = await supabaseAdmin
+    .from('questions')
+    .select('*, categories(name)')
+    .eq('id', questionId)
+    .single();
+  if (!question) return { scored: false };
+
+  const categoryName = (question as { categories?: { name?: string } })
+    ?.categories?.name;
+  const entry = getSelectedOrRejectedEntry(categoryName, question.points);
+  if (!entry) return { scored: false };
+  if (question.auto_scored && !opts.forcedWinner) return { scored: false };
+
+  const { data: subs } = await supabaseAdmin
+    .from('submissions')
+    .select('*')
+    .eq('question_id', questionId)
+    .order('submitted_at');
+
+  const { data: teams } = await supabaseAdmin
+    .from('teams')
+    .select('*')
+    .eq('game_id', gameId);
+  if (!teams) return { scored: false };
+
+  // Latest answer per team (Selected / Rejected) from payload or text.
+  const answerByTeam = new Map<string, string>();
+  for (const s of subs ?? []) {
+    const payloadAnswer = (s.answer_payload as { answer?: string })?.answer;
+    const value = payloadAnswer ?? s.answer_text;
+    if (value) answerByTeam.set(s.team_id, value);
+  }
+
+  const award = new Map<string, number>();
+  let winner: string | undefined;
+
+  if (entry.type === 'truefact') {
+    for (const t of teams) {
+      award.set(t.id, answerByTeam.get(t.id) === entry.correct ? entry.points : 0);
+    }
+  } else if (entry.type === 'majority') {
+    let selected = 0;
+    let rejected = 0;
+    Array.from(answerByTeam.values()).forEach((v) => {
+      if (v === 'Selected') selected += 1;
+      else if (v === 'Rejected') rejected += 1;
+    });
+    if (opts.forcedWinner) winner = opts.forcedWinner;
+    else if (selected > rejected) winner = 'Selected';
+    else if (rejected > selected) winner = 'Rejected';
+    else return { scored: false, tie: true }; // host must break the tie
+
+    for (const t of teams) {
+      award.set(t.id, answerByTeam.get(t.id) === winner ? entry.points : 0);
+    }
+    // Persist the winning side so the Big Screen can display it.
+    await supabaseAdmin
+      .from('game_state')
+      .update({ winning_answer: winner })
+      .eq('game_id', gameId);
+  } else {
+    // tworound / chance / multiselect handled in later phases.
+    return { scored: false };
+  }
+
+  // Apply increments.
+  for (const t of teams) {
+    const delta = award.get(t.id) ?? 0;
+    if (delta !== 0) {
+      await supabaseAdmin
+        .from('teams')
+        .update({ score: t.score + delta })
+        .eq('id', t.id);
+    }
+  }
+
+  await supabaseAdmin
+    .from('questions')
+    .update({ auto_scored: true })
+    .eq('id', questionId);
+
+  return { scored: true, winner };
+}
 
 export async function PATCH(
   req: NextRequest,
@@ -35,6 +137,9 @@ export async function PATCH(
           answers_open: false,
           answer_revealed: false,
           show_leaderboard: false,
+          active_round: 0,
+          winning_answer: null,
+          chance_started: false,
           updated_at: new Date().toISOString(),
         })
         .eq('game_id', game.id)
@@ -96,7 +201,41 @@ export async function PATCH(
 
       if (error)
         return NextResponse.json({ error: error.message }, { status: 500 });
-      return NextResponse.json({ gameState: data });
+
+      // Automatic scoring for Selected or Rejected questions.
+      let scoring: ScoreResult | undefined;
+      if (revealed && data?.current_question_id) {
+        scoring = await autoScoreSelectedOrRejected(
+          game.id,
+          data.current_question_id,
+        );
+      }
+      return NextResponse.json({ gameState: data, scoring });
+    }
+
+    case 'set_winning_answer': {
+      // Q300 tie-break: host picks the winning side, then we score the majority.
+      const { winner, question_id } = body as {
+        winner: SorChoice;
+        question_id?: string;
+      };
+      const { data: state, error } = await supabaseAdmin
+        .from('game_state')
+        .update({
+          winning_answer: winner,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('game_id', game.id)
+        .select()
+        .single();
+      if (error)
+        return NextResponse.json({ error: error.message }, { status: 500 });
+
+      const qid = question_id ?? state?.current_question_id ?? null;
+      const scoring = await autoScoreSelectedOrRejected(game.id, qid, {
+        forcedWinner: winner,
+      });
+      return NextResponse.json({ gameState: state, scoring });
     }
 
     case 'toggle_leaderboard': {
@@ -241,7 +380,7 @@ export async function PATCH(
       if (categoryIds.length > 0) {
         const { error: qErr } = await supabaseAdmin
           .from('questions')
-          .update({ is_answered: false })
+          .update({ is_answered: false, auto_scored: false })
           .in('category_id', categoryIds);
         if (qErr)
           return NextResponse.json({ error: qErr.message }, { status: 500 });
@@ -254,6 +393,9 @@ export async function PATCH(
           answers_open: false,
           answer_revealed: false,
           show_leaderboard: false,
+          active_round: 0,
+          winning_answer: null,
+          chance_started: false,
           updated_at: new Date().toISOString(),
         })
         .eq('game_id', game.id)

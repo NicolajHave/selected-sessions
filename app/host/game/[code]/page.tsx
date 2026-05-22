@@ -19,6 +19,11 @@ import {
   getSelectedBangersEntry,
   segmentDuration,
 } from '@/lib/quiz/selected-bangers';
+import {
+  getSelectedOrRejectedEntry,
+  sorSegmentDuration,
+  type SorChoice,
+} from '@/lib/quiz/selected-or-rejected';
 
 interface CategoryWithQuestions extends Category {
   questions: Question[];
@@ -36,6 +41,7 @@ export default function HostGamePage() {
   const [currentQuestion, setCurrentQuestion] = useState<Question | null>(null);
   const [loading, setLoading] = useState(true);
   const [hintTeamId, setHintTeamId] = useState<string>('');
+  const [waitingMuted, setWaitingMuted] = useState(false);
 
   // Auto-close timer for Selected Bangers questions with autoCloseOnEnd.
   const autoCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -230,18 +236,33 @@ export default function HostGamePage() {
     await loadCurrentQuestion(q.id);
     await reloadSubmissions(q.id);
 
-    // Selected Bangers audio questions: open answers immediately and schedule an
-    // auto-close when the question clip ends (matches Big Screen playback).
+    // Audio questions with autoCloseOnEnd: open answers immediately and schedule
+    // an auto-close when the question clip ends (matches Big Screen playback).
     const cat = categories.find((c) => c.id === q.category_id);
     const sb = getSelectedBangersEntry(cat?.name, q.points);
+    const sor = getSelectedOrRejectedEntry(cat?.name, q.points);
+    let autoCloseSeconds = 0;
     if (sb?.questionAudio?.autoCloseOnEnd) {
-      const seconds = segmentDuration(sb.questionAudio);
+      autoCloseSeconds = segmentDuration(sb.questionAudio);
+    } else if (sor?.questionAudio?.autoCloseOnEnd) {
+      autoCloseSeconds = sorSegmentDuration(sor.questionAudio);
+    }
+    if (autoCloseSeconds > 0) {
       await callApi('set_answers_open', { open: true });
       autoCloseTimerRef.current = setTimeout(() => {
         callApi('set_answers_open', { open: false });
         autoCloseTimerRef.current = null;
-      }, seconds * 1000);
+      }, autoCloseSeconds * 1000);
     }
+  }
+
+  async function setWinningAnswer(winner: SorChoice) {
+    if (!game || !currentQuestion) return;
+    await callApi('set_winning_answer', {
+      winner,
+      question_id: currentQuestion.id,
+    });
+    await reloadTeams(game.id);
   }
 
   async function backToBoard() {
@@ -289,6 +310,20 @@ export default function HostGamePage() {
     await channel.subscribe();
     await channel.send({ type: 'broadcast', event: 'stop_audio', payload: {} });
     // Tear down right away — broadcast doesn't need to persist.
+    setTimeout(() => supabase.removeChannel(channel), 300);
+  }
+
+  // Mute / unmute the Big Screen waiting-room music (transient broadcast).
+  async function setWaitingMute(muted: boolean) {
+    if (!game) return;
+    setWaitingMuted(muted);
+    const channel = supabase.channel(`audio_control:${game.id}`);
+    await channel.subscribe();
+    await channel.send({
+      type: 'broadcast',
+      event: 'toggle_waiting_mute',
+      payload: { muted },
+    });
     setTimeout(() => supabase.removeChannel(channel), 300);
   }
 
@@ -391,6 +426,14 @@ export default function HostGamePage() {
                   The board
                 </p>
                 <div className="flex items-center gap-5">
+                  {gameState?.show_join && (
+                    <button
+                      onClick={() => setWaitingMute(!waitingMuted)}
+                      className="text-xs uppercase tracking-widest text-stone-500 hover:text-ink transition-colors"
+                    >
+                      {waitingMuted ? 'Unmute music' : 'Mute music'}
+                    </button>
+                  )}
                   <button
                     onClick={async () => {
                       await callApi('toggle_join', {
@@ -641,7 +684,108 @@ export default function HostGamePage() {
                 );
               })()}
 
-              {/* Submissions + scoring */}
+              {/* Submissions + scoring — manual, OR auto panel for Selected or Rejected */}
+              {(() => {
+                const sorCat = categories.find(
+                  (c) => c.id === currentQuestion.category_id,
+                );
+                const sorCur = getSelectedOrRejectedEntry(
+                  sorCat?.name,
+                  currentQuestion.points,
+                );
+                if (sorCur) {
+                  const counts: Record<string, number> = {
+                    Selected: 0,
+                    Rejected: 0,
+                  };
+                  for (const s of submissions) {
+                    const v =
+                      (s.answer_payload as { answer?: string })?.answer ??
+                      s.answer_text;
+                    if (v === 'Selected' || v === 'Rejected') counts[v] += 1;
+                  }
+                  return (
+                    <div>
+                      <p className="text-xs uppercase tracking-widest text-stone-500 mb-4">
+                        Live answers ({submissions.length})
+                      </p>
+                      <div className="flex gap-4 mb-6">
+                        <div className="flex-1 border border-stone-200 p-4 text-center">
+                          <p className="text-xs uppercase tracking-widest text-stone-500">
+                            Selected
+                          </p>
+                          <p className="font-serif text-4xl mt-1">
+                            {counts.Selected}
+                          </p>
+                        </div>
+                        <div className="flex-1 border border-stone-200 p-4 text-center">
+                          <p className="text-xs uppercase tracking-widest text-stone-500">
+                            Rejected
+                          </p>
+                          <p className="font-serif text-4xl mt-1">
+                            {counts.Rejected}
+                          </p>
+                        </div>
+                      </div>
+                      <p className="text-sm text-stone-600 mb-6">
+                        Scored automatically when you reveal the answer — no
+                        manual awarding needed.
+                      </p>
+                      {sorCur.type === 'majority' && (
+                        <div className="border-t border-stone-200 pt-4">
+                          <p className="text-xs uppercase tracking-widest text-stone-500 mb-1">
+                            Tie-break (use only if the vote is tied)
+                          </p>
+                          <p className="text-xs text-stone-500 mb-3">
+                            Picks the winning side and awards {sorCur.points} to
+                            those teams.
+                            {gameState?.winning_answer
+                              ? ` Current winner: ${gameState.winning_answer}.`
+                              : ''}
+                          </p>
+                          <div className="flex gap-2">
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              onClick={() => setWinningAnswer('Selected')}
+                            >
+                              Set Selected as winner
+                            </Button>
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              onClick={() => setWinningAnswer('Rejected')}
+                            >
+                              Set Rejected as winner
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                      {submissions.length > 0 && (
+                        <ul className="mt-6 space-y-px">
+                          {submissions.map((s) => {
+                            const team = teams.find((t) => t.id === s.team_id);
+                            const v =
+                              (s.answer_payload as { answer?: string })
+                                ?.answer ?? s.answer_text;
+                            return (
+                              <li
+                                key={s.id}
+                                className="flex items-center justify-between py-2 border-b border-stone-100 text-sm"
+                              >
+                                <span className="uppercase tracking-widest text-stone-500">
+                                  {team?.name || 'Unknown'}
+                                </span>
+                                <span className="font-serif italic">{v}</span>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      )}
+                    </div>
+                  );
+                }
+                return (
               <div>
                 <p className="text-xs uppercase tracking-widest text-stone-500 mb-4">
                   Submissions ({submissions.length})
@@ -791,6 +935,8 @@ export default function HostGamePage() {
                   );
                 })()}
               </div>
+                );
+              })()}
             </div>
           )}
         </div>

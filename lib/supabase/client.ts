@@ -59,6 +59,7 @@ export interface Submission {
   question_id: string;
   team_id: string;
   answer_text: string;
+  answer_payload: Record<string, unknown>;
   submitted_at: string;
 }
 
@@ -69,7 +70,19 @@ export interface GameState {
   answer_revealed: boolean;
   show_leaderboard: boolean;
   show_join: boolean;
+  active_round: number;
+  winning_answer: string | null;
+  chance_started: boolean;
   updated_at: string;
+}
+
+export interface QuestionWager {
+  id: string;
+  game_id: string;
+  team_id: string;
+  question_id: string;
+  wager_amount: number;
+  created_at: string;
 }
 
 export interface TeamQuestionHint {
