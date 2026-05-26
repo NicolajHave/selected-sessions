@@ -83,20 +83,30 @@ export default function ScreenPage() {
     );
   }, [currentQuestion, currentCategoryName]);
 
+  const activeRound = gameState?.active_round ?? 0;
+
+  // For two-round questions the audio comes from the active round.
+  const sorRound =
+    sorEntry?.type === 'tworound' && sorEntry.rounds
+      ? (sorEntry.rounds[activeRound] ?? sorEntry.rounds[0])
+      : null;
+
   // Unified audio clips across all rich categories.
   const openClip: AudioClipSpec | undefined = useMemo(() => {
     if (gtaEntry?.openAudio) return gtaEntry.openAudio;
     if (sbEntry?.questionAudio) return sbToClip(sbEntry.questionAudio);
+    if (sorRound?.questionAudio) return sorToClip(sorRound.questionAudio);
     if (sorEntry?.questionAudio) return sorToClip(sorEntry.questionAudio);
     return undefined;
-  }, [gtaEntry, sbEntry, sorEntry]);
+  }, [gtaEntry, sbEntry, sorEntry, sorRound]);
 
   const revealClip: AudioClipSpec | undefined = useMemo(() => {
     if (gtaEntry?.revealAudio) return gtaEntry.revealAudio;
     if (sbEntry?.revealAudio) return sbToClip(sbEntry.revealAudio);
+    if (sorRound?.revealAudio) return sorToClip(sorRound.revealAudio);
     if (sorEntry?.revealAudio) return sorToClip(sorEntry.revealAudio);
     return undefined;
-  }, [gtaEntry, sbEntry, sorEntry]);
+  }, [gtaEntry, sbEntry, sorEntry, sorRound]);
 
   const hasRichEntry = !!gtaEntry || !!sbEntry || !!sorEntry;
 
@@ -308,11 +318,13 @@ export default function ScreenPage() {
     }
 
     const revealed = !!gameState?.answer_revealed;
+    // Include the active round so two-round questions replay per round.
+    const roundTag = sorEntry?.type === 'tworound' ? `:r${activeRound}` : '';
     let key = '';
     if (revealed && revealClip) {
-      key = `${currentQuestion.id}:reveal`;
+      key = `${currentQuestion.id}:reveal${roundTag}`;
     } else if (!revealed && openClip) {
-      key = `${currentQuestion.id}:open`;
+      key = `${currentQuestion.id}:open${roundTag}`;
     }
 
     if (key && key !== lastAudioKeyRef.current) {
@@ -333,6 +345,8 @@ export default function ScreenPage() {
     openClip,
     revealClip,
     gameState?.answer_revealed,
+    sorEntry,
+    activeRound,
     play,
     stop,
   ]);
@@ -474,12 +488,15 @@ export default function ScreenPage() {
   // ---- Active question view ----
   if (currentQuestion) {
     const revealed = !!gameState?.answer_revealed;
+    const isTwoRound = sorEntry?.type === 'tworound';
     const displayTitle = sbEntry?.title ?? sorEntry?.title;
     const displayPrompt =
-      gtaEntry?.prompt ??
-      sbEntry?.prompt ??
-      sorEntry?.prompt ??
-      currentQuestion.prompt;
+      isTwoRound && !revealed && sorRound
+        ? `“${sorRound.statement}”`
+        : (gtaEntry?.prompt ??
+          sbEntry?.prompt ??
+          sorEntry?.prompt ??
+          currentQuestion.prompt);
     const sorAnswer = sorEntry
       ? sorEntry.type === 'majority'
         ? (gameState?.winning_answer ?? '—')
@@ -522,6 +539,13 @@ export default function ScreenPage() {
           {sorEntry?.subPrompt && !revealed && (
             <p className="text-xl uppercase tracking-[0.3em] text-stone-500 mb-8">
               {sorEntry.subPrompt}
+            </p>
+          )}
+
+          {isTwoRound && !revealed && (
+            <p className="text-xl uppercase tracking-[0.3em] text-stone-500 mb-8">
+              Round {activeRound + 1} of {sorEntry?.rounds?.length ?? 2} ·
+              Selected or Rejected?
             </p>
           )}
 
@@ -572,7 +596,21 @@ export default function ScreenPage() {
             </div>
           )}
 
-          {revealed ? (
+          {revealed && isTwoRound && sorEntry?.rounds ? (
+            <div className="border-t border-ink pt-8 space-y-6">
+              {sorEntry.rounds.map((r, i) => (
+                <div key={i}>
+                  <p className="text-sm uppercase tracking-widest text-stone-500 mb-1">
+                    Round {i + 1} — “{r.statement}”
+                  </p>
+                  <p className="font-serif italic text-4xl md:text-5xl">
+                    {r.correct}
+                  </p>
+                  <p className="mt-1 text-xl text-stone-600">{r.explanation}</p>
+                </div>
+              ))}
+            </div>
+          ) : revealed ? (
             <div className="border-t border-ink pt-8">
               <p className="text-sm uppercase tracking-widest text-stone-500 mb-4">
                 Answer

@@ -80,8 +80,28 @@ async function autoScoreSelectedOrRejected(
       .from('game_state')
       .update({ winning_answer: winner })
       .eq('game_id', gameId);
+  } else if (entry.type === 'tworound') {
+    const rounds = entry.rounds ?? [];
+    // Per-team, per-round answers (each round stored as its own submission row).
+    const byTeamRound = new Map<string, Map<number, string>>();
+    for (const s of subs ?? []) {
+      const p = s.answer_payload as { roundIndex?: number; answer?: string };
+      if (p?.roundIndex == null || !p.answer) continue;
+      if (!byTeamRound.has(s.team_id)) byTeamRound.set(s.team_id, new Map());
+      byTeamRound.get(s.team_id)!.set(p.roundIndex, p.answer);
+    }
+    for (const t of teams) {
+      let pts = 0;
+      const rmap = byTeamRound.get(t.id);
+      if (rmap) {
+        rounds.forEach((r, i) => {
+          if (rmap.get(i) === r.correct) pts += 100;
+        });
+      }
+      award.set(t.id, pts);
+    }
   } else {
-    // tworound / chance / multiselect handled in later phases.
+    // chance / multiselect handled in later phases.
     return { scored: false };
   }
 
@@ -211,6 +231,25 @@ export async function PATCH(
         );
       }
       return NextResponse.json({ gameState: data, scoring });
+    }
+
+    case 'set_round': {
+      // Q200 two-round flow: switch the active round and open its answers.
+      const { round } = body as { round: number };
+      const { data, error } = await supabaseAdmin
+        .from('game_state')
+        .update({
+          active_round: Number(round) || 0,
+          answers_open: true,
+          answer_revealed: false,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('game_id', game.id)
+        .select()
+        .single();
+      if (error)
+        return NextResponse.json({ error: error.message }, { status: 500 });
+      return NextResponse.json({ gameState: data });
     }
 
     case 'set_winning_answer': {

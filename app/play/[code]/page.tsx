@@ -20,6 +20,37 @@ import {
   type SorChoice,
 } from '@/lib/quiz/selected-or-rejected';
 
+/** Visual countdown for a timed round. Remount (via key) to restart. */
+function RoundTimer({ seconds }: { seconds: number }) {
+  const [remaining, setRemaining] = useState(seconds);
+  useEffect(() => {
+    setRemaining(seconds);
+    const started = Date.now();
+    const id = setInterval(() => {
+      const left = Math.max(0, seconds - Math.floor((Date.now() - started) / 1000));
+      setRemaining(left);
+      if (left <= 0) clearInterval(id);
+    }, 250);
+    return () => clearInterval(id);
+  }, [seconds]);
+
+  const pct = Math.max(0, Math.min(100, (remaining / seconds) * 100));
+  return (
+    <div className="mt-2">
+      <div className="flex justify-between text-xs uppercase tracking-widest text-stone-500 mb-2">
+        <span>Time</span>
+        <span>{remaining}s</span>
+      </div>
+      <div className="h-1 bg-stone-200">
+        <div
+          className="h-1 bg-ink transition-[width] duration-300 ease-linear"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
 export default function PlayPage() {
   const params = useParams();
   const router = useRouter();
@@ -38,6 +69,8 @@ export default function PlayPage() {
   );
   const [hintPurchased, setHintPurchased] = useState(false);
   const [sliderYear, setSliderYear] = useState<number | null>(null);
+  // Two-round questions (Q200): answer stored per round index.
+  const [myRounds, setMyRounds] = useState<Record<number, string>>({});
 
   const loadCurrentQuestion = useCallback(
     async (questionId: string | null) => {
@@ -85,6 +118,7 @@ export default function PlayPage() {
     async (questionId: string | null, teamId: string) => {
       if (!questionId) {
         setMySubmission(null);
+        setMyRounds({});
         return;
       }
       const { data } = await supabase
@@ -92,8 +126,19 @@ export default function PlayPage() {
         .select('*')
         .eq('question_id', questionId)
         .eq('team_id', teamId)
-        .maybeSingle();
-      setMySubmission(data);
+        .order('submitted_at');
+      const rows = data ?? [];
+      // Single-answer questions: keep the latest row for the "submitted" view.
+      setMySubmission(rows.length ? rows[rows.length - 1] : null);
+      // Two-round questions: map each round's stored answer.
+      const rounds: Record<number, string> = {};
+      for (const s of rows) {
+        const p = s.answer_payload as { roundIndex?: number; answer?: string };
+        if (typeof p?.roundIndex === 'number' && p.answer) {
+          rounds[p.roundIndex] = p.answer;
+        }
+      }
+      setMyRounds(rounds);
     },
     []
   );
@@ -248,6 +293,22 @@ export default function PlayPage() {
     };
   }, [team]);
 
+  // Two-round choice (Q200): one submission row per round so answers are
+  // preserved separately (Round 1 is never overwritten by Round 2).
+  const submitRoundChoice = async (roundIndex: number, choice: SorChoice) => {
+    if (!currentQuestion || !team) return;
+    if (myRounds[roundIndex]) return; // already answered this round
+    setSubmitting(true);
+    const { error } = await supabase.from('submissions').insert({
+      question_id: currentQuestion.id,
+      team_id: team.id,
+      answer_text: choice,
+      answer_payload: { roundIndex, answer: choice },
+    });
+    if (!error) setMyRounds((prev) => ({ ...prev, [roundIndex]: choice }));
+    setSubmitting(false);
+  };
+
   // Selected/Rejected choice submission (auto-scored on reveal by the host API).
   const submitChoice = async (choice: SorChoice) => {
     if (!currentQuestion || !team) return;
@@ -358,6 +419,103 @@ export default function PlayPage() {
             categoryName,
             currentQuestion.points
           );
+          // Q200 two-round flow — dedicated rendering with its own per-round
+          // storage, so it must take precedence over the single-submission view.
+          if (sor?.type === 'tworound' && sor.rounds) {
+            const rounds = sor.rounds;
+            const activeRound = gameState?.active_round ?? 0;
+            const revealedTR = !!gameState?.answer_revealed;
+            const answersOpenTR = !!gameState?.answers_open;
+            const round = rounds[activeRound] ?? rounds[0];
+            const myAnswerThisRound = myRounds[activeRound];
+            return (
+              <div className="max-w-md mx-auto">
+                <div className="mb-6">
+                  <p className="text-xs uppercase tracking-widest text-stone-500 mb-2">
+                    {currentQuestion.points} points · {sor.title}
+                  </p>
+                  {!revealedTR && (
+                    <p className="text-xs uppercase tracking-[0.2em] text-stone-500">
+                      Round {activeRound + 1} of {rounds.length}
+                    </p>
+                  )}
+                </div>
+
+                {revealedTR ? (
+                  <div className="border-t border-ink pt-6 space-y-6">
+                    {rounds.map((r, i) => (
+                      <div key={i}>
+                        <p className="text-xs uppercase tracking-widest text-stone-500 mb-1">
+                          Round {i + 1} — “{r.statement}”
+                        </p>
+                        <p className="font-serif italic text-xl">{r.correct}</p>
+                        <p className="text-sm text-stone-600 mt-1">
+                          {r.explanation}
+                        </p>
+                        <p className="text-xs text-stone-500 mt-2">
+                          Your answer: {myRounds[i] ?? '—'}
+                          {myRounds[i] === r.correct ? ' · +100' : ' · 0'}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div>
+                    <h2 className="font-serif text-3xl leading-snug mb-2">
+                      “{round.statement}”
+                    </h2>
+                    <p className="text-sm uppercase tracking-[0.2em] text-stone-500 mb-6">
+                      Selected or Rejected?
+                    </p>
+                    {myAnswerThisRound ? (
+                      <div className="border-t border-stone-200 pt-6">
+                        <p className="text-xs uppercase tracking-widest text-stone-500 mb-2">
+                          Locked in for round {activeRound + 1}
+                        </p>
+                        <p className="font-serif italic text-xl text-stone-700">
+                          &ldquo;{myAnswerThisRound}&rdquo;
+                        </p>
+                        <p className="mt-4 text-sm text-stone-500">
+                          Wait for the host to continue.
+                        </p>
+                      </div>
+                    ) : answersOpenTR ? (
+                      <div>
+                        <div className="grid grid-cols-1 gap-4">
+                          {(['Selected', 'Rejected'] as SorChoice[]).map(
+                            (choice) => (
+                              <button
+                                key={choice}
+                                disabled={submitting}
+                                onClick={() =>
+                                  submitRoundChoice(activeRound, choice)
+                                }
+                                className="border-2 border-ink py-8 font-serif text-3xl hover:bg-ink hover:text-paper transition-colors disabled:opacity-40"
+                              >
+                                {choice}
+                              </button>
+                            )
+                          )}
+                        </div>
+                        <RoundTimer
+                          key={`${activeRound}-${answersOpenTR}`}
+                          seconds={round.timerSeconds}
+                        />
+                      </div>
+                    ) : (
+                      <div className="border-t border-stone-200 pt-6">
+                        <p className="text-xs uppercase tracking-widest text-stone-500 mb-2">
+                          Answers locked
+                        </p>
+                        <p className="text-stone-600">Waiting for the host.</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          }
+
           // Phase 2: single Selected/Rejected button input (Q100 + Q300).
           const isSorButtons =
             sor?.type === 'truefact' || sor?.type === 'majority';
