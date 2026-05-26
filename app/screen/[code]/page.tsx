@@ -46,6 +46,9 @@ export default function ScreenPage() {
   const [loading, setLoading] = useState(true);
   const [audioEnabled, setAudioEnabled] = useState(false);
   const [origin, setOrigin] = useState('');
+  const [wagers, setWagers] = useState<
+    { team_id: string; wager_amount: number }[]
+  >([]);
 
   useEffect(() => {
     if (typeof window !== 'undefined') setOrigin(window.location.origin);
@@ -145,6 +148,18 @@ export default function ScreenPage() {
     setTeams(data || []);
   }, []);
 
+  const reloadWagers = useCallback(async (questionId: string | null) => {
+    if (!questionId) {
+      setWagers([]);
+      return;
+    }
+    const { data } = await supabase
+      .from('question_wagers')
+      .select('team_id, wager_amount')
+      .eq('question_id', questionId);
+    setWagers(data || []);
+  }, []);
+
   const loadCurrentQuestion = useCallback(async (qid: string | null) => {
     if (!qid) {
       setCurrentQuestion(null);
@@ -185,13 +200,14 @@ export default function ScreenPage() {
 
       if (stateData?.current_question_id) {
         await loadCurrentQuestion(stateData.current_question_id);
+        await reloadWagers(stateData.current_question_id);
       }
 
       setLoading(false);
     }
 
     init();
-  }, [code, reloadQuestions, reloadTeams, loadCurrentQuestion]);
+  }, [code, reloadQuestions, reloadTeams, reloadWagers, loadCurrentQuestion]);
 
   // Realtime: game_state
   useEffect(() => {
@@ -210,6 +226,7 @@ export default function ScreenPage() {
           const newState = payload.new as GameState;
           setGameState(newState);
           await loadCurrentQuestion(newState.current_question_id);
+          await reloadWagers(newState.current_question_id);
         }
       )
       .subscribe();
@@ -217,7 +234,29 @@ export default function ScreenPage() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [game, loadCurrentQuestion]);
+  }, [game, loadCurrentQuestion, reloadWagers]);
+
+  // Realtime: wagers (CHANCEN) for the current question.
+  useEffect(() => {
+    if (!game || !gameState?.current_question_id) return;
+    const qid = gameState.current_question_id;
+    const channel = supabase
+      .channel(`screen_wagers:${qid}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'question_wagers',
+          filter: `question_id=eq.${qid}`,
+        },
+        () => reloadWagers(qid)
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [game, gameState?.current_question_id, reloadWagers]);
 
   // Realtime: teams (for scores + new joiners)
   useEffect(() => {
@@ -489,9 +528,16 @@ export default function ScreenPage() {
   if (currentQuestion) {
     const revealed = !!gameState?.answer_revealed;
     const isTwoRound = sorEntry?.type === 'tworound';
-    const displayTitle = sbEntry?.title ?? sorEntry?.title;
-    const displayPrompt =
-      isTwoRound && !revealed && sorRound
+    const isChance = sorEntry?.type === 'chance';
+    const isMulti = sorEntry?.type === 'multiselect';
+    const chanceStarted = !!gameState?.chance_started;
+    const chancePre = isChance && !chanceStarted && !revealed;
+    const displayTitle = chancePre
+      ? undefined
+      : (sbEntry?.title ?? sorEntry?.title);
+    const displayPrompt = chancePre
+      ? 'CHANCEN'
+      : isTwoRound && !revealed && sorRound
         ? `“${sorRound.statement}”`
         : (gtaEntry?.prompt ??
           sbEntry?.prompt ??
@@ -532,14 +578,71 @@ export default function ScreenPage() {
             </p>
           )}
 
-          <h1 className="font-serif text-6xl md:text-8xl leading-[1.05] tracking-tight mb-8">
+          <h1
+            className={
+              chancePre
+                ? 'font-serif text-7xl md:text-9xl mb-8 ss-chancen-in'
+                : 'font-serif text-6xl md:text-8xl leading-[1.05] tracking-tight mb-8'
+            }
+          >
             {displayPrompt}
           </h1>
 
-          {sorEntry?.subPrompt && !revealed && (
+          {chancePre && (
+            <div>
+              <p className="text-xl uppercase tracking-[0.3em] text-stone-500 mb-8">
+                Place your wagers on your device
+              </p>
+              <p className="text-sm uppercase tracking-[0.3em] text-stone-400">
+                {wagers.length} / {teams.length} wagers in
+              </p>
+            </div>
+          )}
+
+          {sorEntry?.subPrompt && !revealed && (!isChance || chanceStarted) && (
             <p className="text-xl uppercase tracking-[0.3em] text-stone-500 mb-8">
               {sorEntry.subPrompt}
             </p>
+          )}
+
+          {/* CHANCEN: show the wagers once the question has started */}
+          {isChance && chanceStarted && !revealed && wagers.length > 0 && (
+            <div className="mb-8 flex flex-wrap gap-x-8 gap-y-2">
+              {teams.map((t) => {
+                const w = wagers.find((x) => x.team_id === t.id);
+                if (!w) return null;
+                return (
+                  <p key={t.id} className="font-serif text-2xl">
+                    {t.name}{' '}
+                    <span className="italic text-stone-500">
+                      · {w.wager_amount}
+                    </span>
+                  </p>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Multi-select: the 10-song list (highlight the correct 3 on reveal) */}
+          {isMulti && sorEntry?.songs && (
+            <ol className="mb-8 grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-1 list-decimal list-inside">
+              {sorEntry.songs.map((s, i) => {
+                const correct = revealed && sorEntry.correctSongs?.includes(i);
+                return (
+                  <li
+                    key={i}
+                    className={
+                      correct
+                        ? 'font-serif italic text-3xl text-ink'
+                        : 'text-xl text-stone-500'
+                    }
+                  >
+                    {correct ? '★ ' : ''}
+                    {s}
+                  </li>
+                );
+              })}
+            </ol>
           )}
 
           {isTwoRound && !revealed && (
@@ -609,6 +712,12 @@ export default function ScreenPage() {
                   <p className="mt-1 text-xl text-stone-600">{r.explanation}</p>
                 </div>
               ))}
+            </div>
+          ) : revealed && isMulti ? (
+            <div className="border-t border-ink pt-8">
+              <p className="text-sm uppercase tracking-widest text-stone-500">
+                The 3 correct songs are starred above
+              </p>
             </div>
           ) : revealed ? (
             <div className="border-t border-ink pt-8">

@@ -71,6 +71,12 @@ export default function PlayPage() {
   const [sliderYear, setSliderYear] = useState<number | null>(null);
   // Two-round questions (Q200): answer stored per round index.
   const [myRounds, setMyRounds] = useState<Record<number, string>>({});
+  // CHANCEN (Q400): the team's submitted wager for the current question.
+  const [myWager, setMyWager] = useState<number | null>(null);
+  const [wagerInput, setWagerInput] = useState<string>('');
+  // Multi-select (Q500): currently-checked song indices.
+  const [multiSelect, setMultiSelect] = useState<number[]>([]);
+  const [multiError, setMultiError] = useState('');
 
   const loadCurrentQuestion = useCallback(
     async (questionId: string | null) => {
@@ -81,6 +87,10 @@ export default function PlayPage() {
         setCategoryName(undefined);
         setHintPurchased(false);
         setSliderYear(null);
+        setMyWager(null);
+        setWagerInput('');
+        setMultiSelect([]);
+        setMultiError('');
         return;
       }
       const { data } = await supabase
@@ -93,6 +103,27 @@ export default function PlayPage() {
       const catName = (data as { categories?: { name?: string } } | null)
         ?.categories?.name;
       setCategoryName(catName);
+      // Reset transient inputs for the new question.
+      setWagerInput('');
+      setMultiSelect([]);
+      setMultiError('');
+    },
+    []
+  );
+
+  const loadMyWager = useCallback(
+    async (questionId: string | null, teamId: string) => {
+      if (!questionId) {
+        setMyWager(null);
+        return;
+      }
+      const { data } = await supabase
+        .from('question_wagers')
+        .select('wager_amount')
+        .eq('question_id', questionId)
+        .eq('team_id', teamId)
+        .maybeSingle();
+      setMyWager(data ? data.wager_amount : null);
     },
     []
   );
@@ -193,13 +224,21 @@ export default function PlayPage() {
         await loadCurrentQuestion(stateData.current_question_id);
         await loadMySubmission(stateData.current_question_id, teamData.id);
         await loadHint(stateData.current_question_id, teamData.id);
+        await loadMyWager(stateData.current_question_id, teamData.id);
       }
 
       setLoading(false);
     }
 
     init();
-  }, [code, router, loadCurrentQuestion, loadMySubmission, loadHint]);
+  }, [
+    code,
+    router,
+    loadCurrentQuestion,
+    loadMySubmission,
+    loadHint,
+    loadMyWager,
+  ]);
 
   // Realtime subscription on game_state
   useEffect(() => {
@@ -223,6 +262,7 @@ export default function PlayPage() {
             if (team) {
               await loadMySubmission(newState.current_question_id, team.id);
               await loadHint(newState.current_question_id, team.id);
+              await loadMyWager(newState.current_question_id, team.id);
             }
           }
         }
@@ -239,6 +279,7 @@ export default function PlayPage() {
     loadCurrentQuestion,
     loadMySubmission,
     loadHint,
+    loadMyWager,
   ]);
 
   // Realtime: this team's hint purchases (host grants a private hint).
@@ -306,6 +347,42 @@ export default function PlayPage() {
       answer_payload: { roundIndex, answer: choice },
     });
     if (!error) setMyRounds((prev) => ({ ...prev, [roundIndex]: choice }));
+    setSubmitting(false);
+  };
+
+  // CHANCEN (Q400): submit a wager into question_wagers.
+  const submitWager = async (amount: number) => {
+    if (!currentQuestion || !team) return;
+    setSubmitting(true);
+    const { error } = await supabase.from('question_wagers').insert({
+      game_id: team.game_id,
+      team_id: team.id,
+      question_id: currentQuestion.id,
+      wager_amount: amount,
+    });
+    if (!error) setMyWager(amount);
+    setSubmitting(false);
+  };
+
+  // Multi-select (Q500): submit exactly 3 selected song indices.
+  const submitMultiSelect = async () => {
+    if (!currentQuestion || !team) return;
+    if (multiSelect.length !== 3) {
+      setMultiError('Select exactly 3 songs.');
+      return;
+    }
+    setSubmitting(true);
+    const { data, error } = await supabase
+      .from('submissions')
+      .insert({
+        question_id: currentQuestion.id,
+        team_id: team.id,
+        answer_text: `${multiSelect.length} selected`,
+        answer_payload: { selected: multiSelect },
+      })
+      .select()
+      .single();
+    if (!error && data) setMySubmission(data);
     setSubmitting(false);
   };
 
@@ -510,6 +587,253 @@ export default function PlayPage() {
                         <p className="text-stone-600">Waiting for the host.</p>
                       </div>
                     )}
+                  </div>
+                )}
+              </div>
+            );
+          }
+
+          // Q400 CHANCEN — wager first, then Selected/Rejected.
+          if (sor?.type === 'chance') {
+            const revealedC = !!gameState?.answer_revealed;
+            const chanceStarted = !!gameState?.chance_started;
+            const score = team?.score ?? 0;
+            const baseMin = sor.minWager ?? 400;
+            const minW = score <= 0 ? 0 : score < baseMin ? score : baseMin;
+            const maxW = Math.max(0, score);
+            const fixedWager = minW === maxW;
+            const wagerNum = Number(wagerInput);
+            const wagerValid =
+              wagerInput !== '' &&
+              Number.isFinite(wagerNum) &&
+              wagerNum >= minW &&
+              wagerNum <= maxW;
+            return (
+              <div className="max-w-md mx-auto">
+                <div className="mb-8">
+                  <p className="text-xs uppercase tracking-widest text-stone-500 mb-2">
+                    {currentQuestion.points} points · {sor.title}
+                  </p>
+                  <h2 className="font-serif text-3xl leading-snug">
+                    {chanceStarted || revealedC
+                      ? sor.prompt
+                      : 'Place your wager'}
+                  </h2>
+                  {(chanceStarted || revealedC) && sor.subPrompt && (
+                    <p className="text-sm uppercase tracking-[0.2em] text-stone-500 mt-3">
+                      {sor.subPrompt}
+                    </p>
+                  )}
+                </div>
+
+                {revealedC ? (
+                  <div className="border-t border-ink pt-6">
+                    <p className="text-xs uppercase tracking-widest text-stone-500 mb-2">
+                      Correct answer
+                    </p>
+                    <p className="font-serif italic text-2xl">{sor.correct}</p>
+                    {sor.revealExplanation && (
+                      <p className="mt-3 text-sm text-stone-600">
+                        {sor.revealExplanation}
+                      </p>
+                    )}
+                    <p className="mt-6 text-sm text-stone-500">
+                      Your answer: {mySubmission?.answer_text ?? '—'} · Wager:{' '}
+                      {myWager ?? 0}
+                      {mySubmission
+                        ? mySubmission.answer_text === sor.correct
+                          ? ` · +${myWager ?? 0}`
+                          : ` · −${myWager ?? 0}`
+                        : ''}
+                    </p>
+                  </div>
+                ) : !chanceStarted ? (
+                  myWager != null ? (
+                    <div className="border-t border-stone-200 pt-6">
+                      <p className="text-xs uppercase tracking-widest text-stone-500 mb-2">
+                        Wager locked
+                      </p>
+                      <p className="font-serif italic text-3xl">{myWager}</p>
+                      <p className="mt-4 text-sm text-stone-500">
+                        Wait for the host to start the question.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-6">
+                      <p className="text-sm text-stone-600">
+                        Your score: <strong>{score}</strong> · Wager between{' '}
+                        {minW} and {maxW}.
+                      </p>
+                      {fixedWager ? (
+                        <Button
+                          size="lg"
+                          className="w-full"
+                          disabled={submitting}
+                          onClick={() => submitWager(minW)}
+                        >
+                          {submitting ? 'Submitting...' : `Wager ${minW}`}
+                        </Button>
+                      ) : (
+                        <>
+                          <Input
+                            label="Your wager"
+                            type="number"
+                            inputMode="numeric"
+                            min={minW}
+                            max={maxW}
+                            value={wagerInput}
+                            onChange={(e) => setWagerInput(e.target.value)}
+                            className="text-2xl text-center"
+                          />
+                          <Button
+                            size="lg"
+                            className="w-full"
+                            disabled={submitting || !wagerValid}
+                            onClick={() => submitWager(wagerNum)}
+                          >
+                            {submitting
+                              ? 'Submitting...'
+                              : wagerValid
+                                ? `Wager ${wagerNum}`
+                                : `Enter ${minW}–${maxW}`}
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                  )
+                ) : mySubmission ? (
+                  <div className="border-t border-stone-200 pt-6">
+                    <p className="text-xs uppercase tracking-widest text-stone-500 mb-2">
+                      Submitted · wager {myWager ?? 0}
+                    </p>
+                    <p className="font-serif italic text-xl text-stone-700">
+                      &ldquo;{mySubmission.answer_text}&rdquo;
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 gap-4">
+                    {(['Selected', 'Rejected'] as SorChoice[]).map((choice) => (
+                      <button
+                        key={choice}
+                        disabled={submitting}
+                        onClick={() => submitChoice(choice)}
+                        className="border-2 border-ink py-8 font-serif text-3xl hover:bg-ink hover:text-paper transition-colors disabled:opacity-40"
+                      >
+                        {choice}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          }
+
+          // Q500 multi-select — pick exactly 3 songs.
+          if (sor?.type === 'multiselect' && sor.songs) {
+            const revealedM = !!gameState?.answer_revealed;
+            const answersOpenM = !!gameState?.answers_open;
+            const songs = sor.songs;
+            const correct = new Set(sor.correctSongs ?? []);
+            const mySel =
+              (mySubmission?.answer_payload as { selected?: number[] })
+                ?.selected ?? [];
+            return (
+              <div className="max-w-md mx-auto">
+                <div className="mb-8">
+                  <p className="text-xs uppercase tracking-widest text-stone-500 mb-2">
+                    {currentQuestion.points} points · {sor.title}
+                  </p>
+                  <h2 className="font-serif text-2xl leading-snug">
+                    {sor.prompt}
+                  </h2>
+                </div>
+
+                {revealedM ? (
+                  <div className="border-t border-ink pt-6">
+                    <p className="text-xs uppercase tracking-widest text-stone-500 mb-3">
+                      Correct songs
+                    </p>
+                    <ul className="space-y-1">
+                      {songs.map((s, i) => {
+                        const isCorrect = correct.has(i);
+                        const iPicked = mySel.includes(i);
+                        return (
+                          <li
+                            key={i}
+                            className={`text-sm ${isCorrect ? 'font-serif italic text-lg text-ink' : 'text-stone-400'}`}
+                          >
+                            {isCorrect ? '★ ' : ''}
+                            {s}
+                            {iPicked ? ' · you' : ''}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                    <p className="mt-4 text-sm text-stone-600">
+                      You got {mySel.filter((i) => correct.has(i)).length} of 3
+                      correct.
+                    </p>
+                  </div>
+                ) : mySubmission ? (
+                  <div className="border-t border-stone-200 pt-6">
+                    <p className="text-xs uppercase tracking-widest text-stone-500 mb-2">
+                      Submitted
+                    </p>
+                    <p className="text-sm text-stone-600">
+                      Your 3 picks are locked in. Wait for the reveal.
+                    </p>
+                  </div>
+                ) : answersOpenM ? (
+                  <div className="space-y-4">
+                    <ul className="space-y-2">
+                      {songs.map((s, i) => {
+                        const checked = multiSelect.includes(i);
+                        return (
+                          <li key={i}>
+                            <button
+                              onClick={() => {
+                                setMultiError('');
+                                setMultiSelect((prev) =>
+                                  prev.includes(i)
+                                    ? prev.filter((x) => x !== i)
+                                    : prev.length >= 3
+                                      ? prev
+                                      : [...prev, i]
+                                );
+                              }}
+                              className={`w-full text-left px-4 py-3 border text-sm transition-colors ${
+                                checked
+                                  ? 'border-ink bg-ink text-paper'
+                                  : 'border-stone-300 hover:border-ink'
+                              }`}
+                            >
+                              {s}
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                    <p className="text-xs uppercase tracking-widest text-stone-500">
+                      {multiSelect.length} / 3 selected
+                    </p>
+                    {multiError && (
+                      <p className="text-sm text-clay">{multiError}</p>
+                    )}
+                    <Button
+                      size="lg"
+                      className="w-full"
+                      disabled={submitting || multiSelect.length !== 3}
+                      onClick={submitMultiSelect}
+                    >
+                      {submitting ? 'Submitting...' : 'Submit 3 songs'}
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="border-t border-stone-200 pt-6">
+                    <p className="text-xs uppercase tracking-widest text-stone-500 mb-2">
+                      Answers locked
+                    </p>
+                    <p className="text-stone-600">Waiting for the host.</p>
                   </div>
                 )}
               </div>
