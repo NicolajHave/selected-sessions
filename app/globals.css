@@ -78,13 +78,24 @@
   will-change: stroke-dashoffset;
 }
 
+/* CHANCEN reveal — letters rise and fade in, premium and restrained. */
+@keyframes ss-chancen-in {
+  0% { opacity: 0; transform: translateY(0.4em); letter-spacing: 0.6em; }
+  100% { opacity: 1; transform: translateY(0); letter-spacing: 0.3em; }
+}
+
+.ss-chancen-in {
+  animation: ss-chancen-in 1.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .ss-spin-slow,
   .ss-spin-reverse-slow,
   .ss-spin-very-slow,
   .ss-fade-pulse,
   .ss-wave-pulse,
-  .ss-wave-flow {
+  .ss-wave-flow,
+  .ss-chancen-in {
     animation: none;
   }
 }

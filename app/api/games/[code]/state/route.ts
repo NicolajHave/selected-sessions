@@ -100,8 +100,33 @@ async function autoScoreSelectedOrRejected(
       }
       award.set(t.id, pts);
     }
+  } else if (entry.type === 'chance') {
+    // Wager question: correct adds the wager, wrong subtracts it (can go negative).
+    const { data: wagers } = await supabaseAdmin
+      .from('question_wagers')
+      .select('*')
+      .eq('question_id', questionId);
+    const wagerByTeam = new Map<string, number>();
+    for (const w of wagers ?? []) wagerByTeam.set(w.team_id, w.wager_amount);
+    for (const t of teams) {
+      const ans = answerByTeam.get(t.id);
+      const wager = wagerByTeam.get(t.id) ?? 0;
+      if (!ans) award.set(t.id, 0);
+      else award.set(t.id, ans === entry.correct ? wager : -wager);
+    }
+  } else if (entry.type === 'multiselect') {
+    const correct = new Set(entry.correctSongs ?? []);
+    const selByTeam = new Map<string, number[]>();
+    for (const s of subs ?? []) {
+      const sel = (s.answer_payload as { selected?: number[] })?.selected;
+      if (Array.isArray(sel)) selByTeam.set(s.team_id, sel);
+    }
+    for (const t of teams) {
+      const sel = selByTeam.get(t.id) ?? [];
+      const hits = sel.filter((i) => correct.has(i)).length;
+      award.set(t.id, entry.multiSelectTiers?.[hits] ?? 0);
+    }
   } else {
-    // chance / multiselect handled in later phases.
     return { scored: false };
   }
 
@@ -240,6 +265,24 @@ export async function PATCH(
         .from('game_state')
         .update({
           active_round: Number(round) || 0,
+          answers_open: true,
+          answer_revealed: false,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('game_id', game.id)
+        .select()
+        .single();
+      if (error)
+        return NextResponse.json({ error: error.message }, { status: 500 });
+      return NextResponse.json({ gameState: data });
+    }
+
+    case 'start_chance': {
+      // Q400 CHANCEN: wagers are in — reveal the question and open answers.
+      const { data, error } = await supabaseAdmin
+        .from('game_state')
+        .update({
+          chance_started: true,
           answers_open: true,
           answer_revealed: false,
           updated_at: new Date().toISOString(),

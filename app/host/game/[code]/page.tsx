@@ -11,6 +11,7 @@ import {
   type Question,
   type Submission,
   type Team,
+  type QuestionWager,
 } from '@/lib/supabase/client';
 import { Logo } from '@/components/shared/Logo';
 import { Button } from '@/components/shared/Button';
@@ -42,6 +43,7 @@ export default function HostGamePage() {
   const [loading, setLoading] = useState(true);
   const [hintTeamId, setHintTeamId] = useState<string>('');
   const [waitingMuted, setWaitingMuted] = useState(false);
+  const [wagers, setWagers] = useState<QuestionWager[]>([]);
 
   // Auto-close timer for Selected Bangers questions with autoCloseOnEnd.
   const autoCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -100,6 +102,18 @@ export default function HostGamePage() {
     setSubmissions(data || []);
   }, []);
 
+  const reloadWagers = useCallback(async (questionId: string | null) => {
+    if (!questionId) {
+      setWagers([]);
+      return;
+    }
+    const { data } = await supabase
+      .from('question_wagers')
+      .select('*')
+      .eq('question_id', questionId);
+    setWagers(data || []);
+  }, []);
+
   const loadCurrentQuestion = useCallback(async (qid: string | null) => {
     if (!qid) {
       setCurrentQuestion(null);
@@ -143,13 +157,43 @@ export default function HostGamePage() {
       if (stateData?.current_question_id) {
         await loadCurrentQuestion(stateData.current_question_id);
         await reloadSubmissions(stateData.current_question_id);
+        await reloadWagers(stateData.current_question_id);
       }
 
       setLoading(false);
     }
 
     init();
-  }, [code, reloadQuestions, reloadTeams, reloadSubmissions, loadCurrentQuestion]);
+  }, [
+    code,
+    reloadQuestions,
+    reloadTeams,
+    reloadSubmissions,
+    reloadWagers,
+    loadCurrentQuestion,
+  ]);
+
+  // ---- Realtime: wagers for current question (CHANCEN) ----
+  useEffect(() => {
+    if (!gameState?.current_question_id) return;
+    const qid = gameState.current_question_id;
+    const channel = supabase
+      .channel(`wagers:${qid}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'question_wagers',
+          filter: `question_id=eq.${qid}`,
+        },
+        () => reloadWagers(qid)
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [gameState?.current_question_id, reloadWagers]);
 
   // ---- Realtime: submissions for current question ----
 
@@ -235,6 +279,7 @@ export default function HostGamePage() {
     await callApi('select_question', { question_id: q.id });
     await loadCurrentQuestion(q.id);
     await reloadSubmissions(q.id);
+    await reloadWagers(q.id);
 
     // Audio questions with autoCloseOnEnd: open answers immediately and schedule
     // an auto-close when the question clip ends (matches Big Screen playback).
@@ -297,6 +342,7 @@ export default function HostGamePage() {
     await callApi('back_to_board');
     setCurrentQuestion(null);
     setSubmissions([]);
+    setWagers([]);
   }
 
   async function buyHint(teamId: string, cost: number) {
@@ -767,28 +813,88 @@ export default function HostGamePage() {
                           )}
                         </div>
                       )}
-                      <p className="text-xs uppercase tracking-widest text-stone-500 mb-4">
-                        Live answers ({submissions.length}) · Round{' '}
-                        {activeRound + 1}
-                      </p>
-                      <div className="flex gap-4 mb-6">
-                        <div className="flex-1 border border-stone-200 p-4 text-center">
-                          <p className="text-xs uppercase tracking-widest text-stone-500">
-                            Selected
+
+                      {/* CHANCEN wager overview + start control */}
+                      {sorCur.type === 'chance' && (
+                        <div className="border border-stone-200 p-4 mb-6">
+                          <p className="text-xs uppercase tracking-widest text-stone-500 mb-3">
+                            Wagers ({wagers.length}/{teams.length})
                           </p>
-                          <p className="font-serif text-4xl mt-1">
-                            {counts.Selected}
-                          </p>
+                          <ul className="space-y-1 mb-4">
+                            {teams.map((t) => {
+                              const w = wagers.find((x) => x.team_id === t.id);
+                              return (
+                                <li
+                                  key={t.id}
+                                  className="flex justify-between text-sm"
+                                >
+                                  <span className="text-stone-600">
+                                    {t.name}
+                                  </span>
+                                  <span className="font-serif italic">
+                                    {w ? w.wager_amount : '—'}
+                                  </span>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                          {!gameState?.chance_started ? (
+                            <Button
+                              size="sm"
+                              onClick={() => callApi('start_chance')}
+                            >
+                              Start Chance Question
+                            </Button>
+                          ) : (
+                            <p className="text-xs uppercase tracking-widest text-stone-400">
+                              Question started — reveal to score
+                            </p>
+                          )}
                         </div>
-                        <div className="flex-1 border border-stone-200 p-4 text-center">
-                          <p className="text-xs uppercase tracking-widest text-stone-500">
-                            Rejected
+                      )}
+
+                      {/* Multi-select: nothing to count, just a status note */}
+                      {sorCur.type === 'multiselect' && (
+                        <p className="text-sm text-stone-600 mb-6">
+                          {submissions.length}/{teams.length} teams have
+                          submitted their 3 songs. Scored automatically on
+                          reveal (3=500, 2=300, 1=100).
+                        </p>
+                      )}
+
+                      {/* Selected/Rejected counts (button-style questions) */}
+                      {(sorCur.type === 'truefact' ||
+                        sorCur.type === 'majority' ||
+                        sorCur.type === 'tworound' ||
+                        (sorCur.type === 'chance' &&
+                          gameState?.chance_started)) && (
+                        <>
+                          <p className="text-xs uppercase tracking-widest text-stone-500 mb-4">
+                            Live answers ({submissions.length})
+                            {sorCur.type === 'tworound'
+                              ? ` · Round ${activeRound + 1}`
+                              : ''}
                           </p>
-                          <p className="font-serif text-4xl mt-1">
-                            {counts.Rejected}
-                          </p>
-                        </div>
-                      </div>
+                          <div className="flex gap-4 mb-6">
+                            <div className="flex-1 border border-stone-200 p-4 text-center">
+                              <p className="text-xs uppercase tracking-widest text-stone-500">
+                                Selected
+                              </p>
+                              <p className="font-serif text-4xl mt-1">
+                                {counts.Selected}
+                              </p>
+                            </div>
+                            <div className="flex-1 border border-stone-200 p-4 text-center">
+                              <p className="text-xs uppercase tracking-widest text-stone-500">
+                                Rejected
+                              </p>
+                              <p className="font-serif text-4xl mt-1">
+                                {counts.Rejected}
+                              </p>
+                            </div>
+                          </div>
+                        </>
+                      )}
                       <p className="text-sm text-stone-600 mb-6">
                         Scored automatically when you reveal the answer — no
                         manual awarding needed.
