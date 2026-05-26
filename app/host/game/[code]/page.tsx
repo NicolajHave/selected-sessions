@@ -241,6 +241,13 @@ export default function HostGamePage() {
     const cat = categories.find((c) => c.id === q.category_id);
     const sb = getSelectedBangersEntry(cat?.name, q.points);
     const sor = getSelectedOrRejectedEntry(cat?.name, q.points);
+
+    // Two-round questions (Q200) start at round 0.
+    if (sor?.type === 'tworound') {
+      await enterRound(0, q);
+      return;
+    }
+
     let autoCloseSeconds = 0;
     if (sb?.questionAudio?.autoCloseOnEnd) {
       autoCloseSeconds = segmentDuration(sb.questionAudio);
@@ -253,6 +260,25 @@ export default function HostGamePage() {
         callApi('set_answers_open', { open: false });
         autoCloseTimerRef.current = null;
       }, autoCloseSeconds * 1000);
+    }
+  }
+
+  // Q200: switch to a round, play its audio on the Big Screen, and auto-close
+  // answers when that round's clip ends.
+  async function enterRound(roundIndex: number, q?: Question) {
+    const question = q ?? currentQuestion;
+    if (!game || !question) return;
+    const cat = categories.find((c) => c.id === question.category_id);
+    const sor = getSelectedOrRejectedEntry(cat?.name, question.points);
+    const round = sor?.rounds?.[roundIndex];
+    clearAutoCloseTimer();
+    await callApi('set_round', { round: roundIndex });
+    if (round?.questionAudio?.autoCloseOnEnd) {
+      const seconds = sorSegmentDuration(round.questionAudio);
+      autoCloseTimerRef.current = setTimeout(() => {
+        callApi('set_answers_open', { open: false });
+        autoCloseTimerRef.current = null;
+      }, seconds * 1000);
     }
   }
 
@@ -694,20 +720,56 @@ export default function HostGamePage() {
                   currentQuestion.points,
                 );
                 if (sorCur) {
+                  const activeRound = gameState?.active_round ?? 0;
+                  const roundCount = sorCur.rounds?.length ?? 0;
                   const counts: Record<string, number> = {
                     Selected: 0,
                     Rejected: 0,
                   };
                   for (const s of submissions) {
-                    const v =
-                      (s.answer_payload as { answer?: string })?.answer ??
-                      s.answer_text;
+                    const p = s.answer_payload as {
+                      answer?: string;
+                      roundIndex?: number;
+                    };
+                    // For two-round questions only count the active round.
+                    if (
+                      sorCur.type === 'tworound' &&
+                      p?.roundIndex !== activeRound
+                    ) {
+                      continue;
+                    }
+                    const v = p?.answer ?? s.answer_text;
                     if (v === 'Selected' || v === 'Rejected') counts[v] += 1;
                   }
                   return (
                     <div>
+                      {sorCur.type === 'tworound' && (
+                        <div className="border border-stone-200 p-4 mb-6">
+                          <p className="text-xs uppercase tracking-widest text-stone-500 mb-2">
+                            Two rounds · currently Round {activeRound + 1} of{' '}
+                            {roundCount}
+                          </p>
+                          <p className="text-xs text-stone-500 mb-3">
+                            Each correct round = 100. Reveal when both rounds are
+                            done — scored automatically.
+                          </p>
+                          {activeRound < roundCount - 1 ? (
+                            <Button
+                              size="sm"
+                              onClick={() => enterRound(activeRound + 1)}
+                            >
+                              Start Round {activeRound + 2}
+                            </Button>
+                          ) : (
+                            <p className="text-xs uppercase tracking-widest text-stone-400">
+                              Final round — reveal to score
+                            </p>
+                          )}
+                        </div>
+                      )}
                       <p className="text-xs uppercase tracking-widest text-stone-500 mb-4">
-                        Live answers ({submissions.length})
+                        Live answers ({submissions.length}) · Round{' '}
+                        {activeRound + 1}
                       </p>
                       <div className="flex gap-4 mb-6">
                         <div className="flex-1 border border-stone-200 p-4 text-center">
