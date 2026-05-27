@@ -198,7 +198,7 @@ export const FINISH_THE_OUTFIT: Record<number, FtoEntry> = {
       "When I'm drunk in the morning,",
       "I'm calling you,",
     ],
-    lyricTimings: [23, 26, 27, 33, 39, 42, 45, 48, 53, 55, 59, 64, 67.5],
+    lyricTimings: [23, 26, 28, 33, 39, 42, 45, 48, 53, 55, 59, 64, 67.5],
     maskedAnswer: '--- ----- -- ------, ------',
     maskedAnswerTime: 69.8,
     correctAnswer: 'you might be lonely, lonely',
