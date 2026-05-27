@@ -39,18 +39,40 @@ interface CategoryWithQuestions extends Category {
   questions: Question[];
 }
 
-/** Reveals configured lyric lines one at a time, evenly across the clip. */
+/**
+ * Reveals configured lyric lines one at a time. If `timings` is provided, lines
+ * appear at those exact seconds (from audio start); otherwise they advance at
+ * equal intervals across the clip (fallback for questions without timings).
+ */
 function LyricTicker({
   lines,
   durationSec,
   resetKey,
+  timings,
+  maskedTime,
+  maskedAnswer,
 }: {
   lines: string[];
   durationSec: number;
   resetKey: string;
+  timings?: number[];
+  maskedTime?: number;
+  maskedAnswer?: string;
 }) {
+  const timed = !!timings && timings.length > 0;
   const [index, setIndex] = useState(0);
+  const [elapsed, setElapsed] = useState(0);
+
   useEffect(() => {
+    if (timed) {
+      setElapsed(0);
+      const start = Date.now();
+      const id = setInterval(() => {
+        setElapsed((Date.now() - start) / 1000);
+      }, 200);
+      return () => clearInterval(id);
+    }
+    // Fallback: equal intervals.
     setIndex(0);
     if (lines.length <= 1) return;
     const step = Math.max(1500, (durationSec * 1000) / lines.length);
@@ -58,7 +80,34 @@ function LyricTicker({
       setIndex((i) => Math.min(lines.length - 1, i + 1));
     }, step);
     return () => clearInterval(id);
-  }, [lines.length, durationSec, resetKey]);
+  }, [lines.length, durationSec, resetKey, timed]);
+
+  if (timed) {
+    // Masked answer takes over at maskedTime.
+    if (maskedTime != null && elapsed >= maskedTime && maskedAnswer) {
+      return (
+        <p className="font-serif text-5xl md:text-7xl tracking-[0.15em] text-stone-500 ss-chancen-in">
+          {maskedAnswer}
+        </p>
+      );
+    }
+    // Highest line index whose timestamp has been reached; nothing shown before.
+    let cur = -1;
+    for (let i = 0; i < timings!.length; i++) {
+      if (elapsed >= timings![i]) cur = i;
+    }
+    if (cur < 0) {
+      return <p className="font-serif text-5xl md:text-7xl">&nbsp;</p>;
+    }
+    return (
+      <p
+        key={cur}
+        className="font-serif text-5xl md:text-7xl leading-tight ss-chancen-in"
+      >
+        {lines[cur]}
+      </p>
+    );
+  }
 
   return (
     <p
@@ -674,6 +723,9 @@ export default function ScreenPage() {
                 lines={ftoEntry.lyricLines}
                 durationSec={qDuration}
                 resetKey={currentQuestion.id}
+                timings={ftoEntry.lyricTimings}
+                maskedTime={ftoEntry.maskedAnswerTime}
+                maskedAnswer={ftoEntry.maskedAnswer}
               />
             )}
           </div>

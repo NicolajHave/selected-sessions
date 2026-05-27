@@ -53,8 +53,12 @@ export interface FtoEntry {
   prompt: string;
   /** Display lines shown one at a time on the Big Screen. */
   lyricLines: string[];
+  /** Optional: seconds (from audio start) at which each lyricLines[i] appears. */
+  lyricTimings?: number[];
   /** Masked pattern shown at the hard stop (dashes / punctuation only). */
   maskedAnswer: string;
+  /** Optional: second at which the masked answer appears / answers open. */
+  maskedAnswerTime?: number;
   /** Final accepted lyric, shown on reveal. */
   correctAnswer: string;
   questionAudio: FtoAudioSegment;
@@ -86,7 +90,9 @@ export const FINISH_THE_OUTFIT: Record<number, FtoEntry> = {
       'That I want it that way',
       'Tell me why',
     ],
+    lyricTimings: [9, 13, 18, 24, 27, 35, 40, 42, 46],
     maskedAnswer: "---'- ------' --- - ---------",
+    maskedAnswerTime: 48,
     correctAnswer: "Ain't nothin' but a heartache",
     questionAudio: {
       src: `${A}/backstreet-boys-i-want-it-that-way.mp3`,
