@@ -152,12 +152,12 @@ export const FINISH_THE_OUTFIT: Record<number, FtoEntry> = {
       63, 66, 70, 74,
     ],
     maskedAnswer: "---- -'-- --- -------",
-    maskedAnswerTime: 76.7,
-    correctAnswer: "Then I'll Say GoodBye",
+    maskedAnswerTime: 76.6,
+    correctAnswer: "Then I'll Say Goodbye",
     questionAudio: {
       src: `${A}/spice-girls-wannabe.mp3`,
       startTime: 0,
-      endTime: 76.7,
+      endTime: 76.6,
       fadeOutSeconds: 0,
       hardStopAtEnd: true,
       autoOpenAnswersOnEnd: true,
@@ -170,7 +170,7 @@ export const FINISH_THE_OUTFIT: Record<number, FtoEntry> = {
     },
     revealAnimation: {
       type: 'typewriter',
-      text: "Then I'll Say GoodBye",
+      text: "Then I'll Say Goodbye",
     },
     scoring: {
       mode: 'host',
@@ -198,7 +198,7 @@ export const FINISH_THE_OUTFIT: Record<number, FtoEntry> = {
       "When I'm drunk in the morning,",
       "I'm calling you,",
     ],
-    lyricTimings: [23, 26, 28, 33, 39, 42, 45, 48, 53, 55, 59, 64, 67.5],
+    lyricTimings: [23, 26, 29, 34, 40, 42.5, 45.5, 48.5, 53, 55, 60, 65, 68],
     maskedAnswer: '--- ----- -- ------, ------',
     maskedAnswerTime: 69.8,
     correctAnswer: 'you might be lonely, lonely',
