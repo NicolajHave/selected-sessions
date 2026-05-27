@@ -69,7 +69,7 @@ function LyricTicker({
       const start = Date.now();
       const id = setInterval(() => {
         setElapsed((Date.now() - start) / 1000);
-      }, 200);
+      }, 120);
       return () => clearInterval(id);
     }
     // Fallback: equal intervals.
@@ -99,12 +99,36 @@ function LyricTicker({
     if (cur < 0) {
       return <p className="font-serif text-5xl md:text-7xl">&nbsp;</p>;
     }
+    // Word-by-word reveal across the time available until the next line
+    // (or the masked answer / clip end for the final line).
+    const lineStart = timings![cur];
+    const nextStart =
+      cur + 1 < timings!.length
+        ? timings![cur + 1]
+        : (maskedTime ?? (durationSec > lineStart ? durationSec : lineStart + 4));
+    const available = Math.max(0.5, nextStart - lineStart);
+    const revealWindow = available * 0.8; // last 20% keeps the full line visible
+    const words = lines[cur].split(' ');
+    const elapsedInLine = Math.max(0, elapsed - lineStart);
+    const frac = revealWindow > 0 ? Math.min(1, elapsedInLine / revealWindow) : 1;
+    const wordsToShow = Math.max(1, Math.round(frac * words.length));
     return (
       <p
         key={cur}
-        className="font-serif text-5xl md:text-7xl leading-tight ss-chancen-in"
+        className="font-serif text-5xl md:text-7xl leading-tight"
       >
-        {lines[cur]}
+        {words.map((w, i) => (
+          <span
+            key={i}
+            style={{
+              opacity: i < wordsToShow ? 1 : 0,
+              transition: 'opacity 450ms ease',
+            }}
+          >
+            {w}
+            {i < words.length - 1 ? ' ' : ''}
+          </span>
+        ))}
       </p>
     );
   }
