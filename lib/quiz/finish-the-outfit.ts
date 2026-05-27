@@ -248,7 +248,9 @@ export const FINISH_THE_OUTFIT: Record<number, FtoEntry> = {
       'Do you feel it too?',
       "Can't you see me here on overload?",
     ],
+    lyricTimings: [7, 11, 15, 18, 22, 26, 29, 32, 36, 40, 43, 47, 52, 55, 59],
     maskedAnswer: '-- ---- ---- - ----- ---',
+    maskedAnswerTime: 62,
     correctAnswer: 'And this time I blame you',
     questionAudio: {
       src: `${A}/david-guetta-kelly-rowland-when-love-takes-over.mp3`,
