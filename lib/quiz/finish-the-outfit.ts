@@ -149,12 +149,17 @@ export const FINISH_THE_OUTFIT: Record<number, FtoEntry> = {
       "I won't be hasty, I'll give you a try",
       'If you really bug me',
     ],
+    lyricTimings: [
+      4, 7, 9, 11, 13, 15, 18, 22, 26, 31, 35, 37, 39, 41, 43, 48, 52, 56, 61,
+      63, 66, 70, 74,
+    ],
     maskedAnswer: "-'-- ---- --- -------",
+    maskedAnswerTime: 76,
     correctAnswer: "Then I'll Say GoodBye",
     questionAudio: {
       src: `${A}/spice-girls-wannabe.mp3`,
       startTime: 0,
-      endTime: 75,
+      endTime: 76,
       fadeOutSeconds: 0,
       hardStopAtEnd: true,
       autoOpenAnswersOnEnd: true,
