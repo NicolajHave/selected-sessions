@@ -21,6 +21,9 @@ export interface GuessTheArtistEntry {
   type: 'image' | 'audio' | 'text';
   initialImage?: string;
   revealedImage?: string;
+  /** Optional image shown on the Big Screen when the answer is revealed
+   *  (for non-image questions that still want a reveal visual). */
+  revealImage?: string;
   /** Played when the question opens (only if defined). Big Screen only. */
   openAudio?: AudioClipSpec;
   /** Played when the answer is revealed (only if defined). Big Screen only. */
@@ -66,6 +69,7 @@ export const GUESS_THE_ARTIST: Record<number, GuessTheArtistEntry> = {
     prompt: 'Hvem åbnede Orange Scene i 2025?',
     answer: 'Annika',
     type: 'text',
+    revealImage: '/quiz-assets/images/annika.jpg',
     revealAudio: {
       src: '/quiz-assets/audio/Blodigt (feat. Annika).mp3',
       startAt: 58,
@@ -96,6 +100,7 @@ export const GUESS_THE_ARTIST: Record<number, GuessTheArtistEntry> = {
     prompt: 'Who did this song?',
     answer: 'Queen - Fat Bottomed Girls',
     type: 'audio',
+    revealImage: '/quiz-assets/images/queen.jpg',
     openAudio: {
       src: '/quiz-assets/audio/Fat Bottomed Girls - Remastered 2011.mp3',
       startAt: 0,

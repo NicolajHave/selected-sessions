@@ -673,6 +673,25 @@ export default function ScreenPage() {
             </div>
           )}
 
+          {/* Reveal image for non-image questions (GTA Q300/Q500, SB Q200) */}
+          {revealed &&
+            (gtaEntry?.revealImage || sbEntry?.revealImage) && (
+              <div className="mb-12">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={encodeURI(
+                    (gtaEntry?.revealImage ?? sbEntry?.revealImage)!,
+                  )}
+                  alt={displayAnswer}
+                  className="max-h-[50vh] w-auto mx-auto object-contain"
+                  onError={(e) => {
+                    (e.currentTarget as HTMLImageElement).style.display =
+                      'none';
+                  }}
+                />
+              </div>
+            )}
+
           {/* Audio question — show the Selected Sessions loader as visual */}
           {showAudioVisual && (
             <div className="mb-12">
