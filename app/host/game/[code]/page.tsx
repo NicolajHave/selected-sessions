@@ -25,6 +25,10 @@ import {
   sorSegmentDuration,
   type SorChoice,
 } from '@/lib/quiz/selected-or-rejected';
+import {
+  getFinishTheOutfitEntry,
+  ftoSegmentDuration,
+} from '@/lib/quiz/finish-the-outfit';
 
 interface CategoryWithQuestions extends Category {
   questions: Question[];
@@ -286,10 +290,22 @@ export default function HostGamePage() {
     const cat = categories.find((c) => c.id === q.category_id);
     const sb = getSelectedBangersEntry(cat?.name, q.points);
     const sor = getSelectedOrRejectedEntry(cat?.name, q.points);
+    const fto = getFinishTheOutfitEntry(cat?.name, q.points);
 
     // Two-round questions (Q200) start at round 0.
     if (sor?.type === 'tworound') {
       await enterRound(0, q);
+      return;
+    }
+
+    // Finish the (Out)fit: song plays with answers CLOSED, then answers open
+    // automatically at the hard stop (end of the question clip).
+    if (fto) {
+      const seconds = ftoSegmentDuration(fto.questionAudio);
+      autoCloseTimerRef.current = setTimeout(() => {
+        callApi('set_answers_open', { open: true });
+        autoCloseTimerRef.current = null;
+      }, seconds * 1000);
       return;
     }
 
@@ -599,13 +615,34 @@ export default function HostGamePage() {
                   cat?.name,
                   currentQuestion.points,
                 );
-                const isRich = !!gta || !!sb;
-                const displayTitle = sb?.title;
+                const sor = getSelectedOrRejectedEntry(
+                  cat?.name,
+                  currentQuestion.points,
+                );
+                const fto = getFinishTheOutfitEntry(
+                  cat?.name,
+                  currentQuestion.points,
+                );
+                const isRich = !!gta || !!sb || !!sor || !!fto;
+                const displayTitle = sb?.title ?? sor?.title ?? fto?.title;
                 const displayPrompt =
-                  gta?.prompt ?? sb?.prompt ?? currentQuestion.prompt;
+                  gta?.prompt ??
+                  sb?.prompt ??
+                  sor?.prompt ??
+                  fto?.prompt ??
+                  currentQuestion.prompt;
                 const displayAnswer =
-                  gta?.answer ?? sb?.answer ?? currentQuestion.answer;
-                const hasOpenAudio = !!gta?.openAudio || !!sb?.questionAudio;
+                  fto != null
+                    ? fto.correctAnswer || '(host-scored — see team answers)'
+                    : (gta?.answer ??
+                      sb?.answer ??
+                      sor?.correct ??
+                      currentQuestion.answer);
+                const hasOpenAudio =
+                  !!gta?.openAudio ||
+                  !!sb?.questionAudio ||
+                  !!sor?.questionAudio ||
+                  !!fto;
 
                 return (
                   <>
@@ -761,6 +798,141 @@ export default function HostGamePage() {
                 const sorCat = categories.find(
                   (c) => c.id === currentQuestion.category_id,
                 );
+                const ftoCur = getFinishTheOutfitEntry(
+                  sorCat?.name,
+                  currentQuestion.points,
+                );
+                if (ftoCur) {
+                  // Group submissions: one main lyric row + optional bonus row per team.
+                  const lyricByTeam = new Map<string, string>();
+                  const bonusByTeam = new Map<string, string>();
+                  for (const s of submissions) {
+                    const p = s.answer_payload as {
+                      lyricAnswer?: string;
+                      bonusAnswer?: string;
+                    };
+                    if (p?.bonusAnswer) bonusByTeam.set(s.team_id, p.bonusAnswer);
+                    else lyricByTeam.set(s.team_id, p?.lyricAnswer ?? s.answer_text);
+                  }
+                  const answeredTeams = teams.filter((t) =>
+                    lyricByTeam.has(t.id),
+                  );
+                  return (
+                    <div>
+                      <p className="text-xs uppercase tracking-widest text-stone-500 mb-1">
+                        Lyric answers ({answeredTeams.length}/{teams.length})
+                      </p>
+                      <p className="text-xs text-stone-500 mb-4">
+                        Host-scored. Click Correct to award {ftoCur.points}.
+                      </p>
+                      {answeredTeams.length === 0 ? (
+                        <p className="text-stone-500 text-sm">
+                          No answers yet — answers open when the song stops.
+                        </p>
+                      ) : (
+                        <ul className="space-y-px">
+                          {answeredTeams.map((t) => (
+                            <li
+                              key={t.id}
+                              className="flex items-center justify-between py-3 border-b border-stone-200"
+                            >
+                              <div className="flex-1 pr-3">
+                                <p className="text-xs uppercase tracking-widest text-stone-500">
+                                  {t.name}
+                                </p>
+                                <p className="font-serif italic text-lg">
+                                  &ldquo;{lyricByTeam.get(t.id)}&rdquo;
+                                </p>
+                              </div>
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={() =>
+                                    awardPoints(t.id, ftoCur.points)
+                                  }
+                                  className="bg-ink text-paper px-4 py-2 text-xs uppercase tracking-widest hover:opacity-90"
+                                >
+                                  Correct +{ftoCur.points}
+                                </button>
+                                <button
+                                  onClick={() =>
+                                    awardPoints(t.id, -ftoCur.points)
+                                  }
+                                  className="border border-stone-300 px-3 py-2 text-xs uppercase tracking-widest hover:border-ink"
+                                >
+                                  −{ftoCur.points}
+                                </button>
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+
+                      {/* Q400 bonus status (auto-scored on reveal) */}
+                      {ftoCur.bonus && (
+                        <div className="mt-8 pt-6 border-t border-stone-200">
+                          <p className="text-xs uppercase tracking-widest text-stone-500 mb-1">
+                            Bonus answers (auto-scored on reveal)
+                          </p>
+                          <p className="text-xs text-stone-500 mb-3">
+                            Correct (“{ftoCur.bonus.correct}”) +
+                            {ftoCur.bonus.correctPoints} · wrong{' '}
+                            {ftoCur.bonus.wrongPoints}
+                          </p>
+                          <ul className="space-y-1">
+                            {teams.map((t) => (
+                              <li
+                                key={t.id}
+                                className="flex justify-between text-sm"
+                              >
+                                <span className="text-stone-600">{t.name}</span>
+                                <span className="font-serif italic">
+                                  {bonusByTeam.get(t.id) ?? '—'}
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {/* Q500 paid hint */}
+                      {ftoCur.hint && (
+                        <div className="mt-8 pt-6 border-t border-stone-200">
+                          <p className="text-xs uppercase tracking-widest text-stone-500 mb-1">
+                            Paid hint (−{ftoCur.hint.cost})
+                          </p>
+                          <p className="text-xs text-stone-500 mb-3">
+                            Subtracts {ftoCur.hint.cost} and reveals the hint on
+                            that team&rsquo;s screen.
+                          </p>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <select
+                              value={hintTeamId}
+                              onChange={(e) => setHintTeamId(e.target.value)}
+                              className="border border-stone-300 px-3 py-2 text-sm bg-white"
+                            >
+                              <option value="">Select a team…</option>
+                              {teams.map((t) => (
+                                <option key={t.id} value={t.id}>
+                                  {t.name}
+                                </option>
+                              ))}
+                            </select>
+                            <button
+                              disabled={!hintTeamId}
+                              onClick={() =>
+                                buyHint(hintTeamId, ftoCur.hint!.cost)
+                              }
+                              className="bg-ink text-paper px-4 py-2 text-xs uppercase tracking-widest hover:opacity-90 disabled:opacity-30"
+                            >
+                              Buy hint (−{ftoCur.hint.cost})
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                }
+
                 const sorCur = getSelectedOrRejectedEntry(
                   sorCat?.name,
                   currentQuestion.points,

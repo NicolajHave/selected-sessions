@@ -28,10 +28,66 @@ import {
   sorToClip,
   type SorEntry,
 } from '@/lib/quiz/selected-or-rejected';
+import {
+  getFinishTheOutfitEntry,
+  ftoToClip,
+  type FtoEntry,
+} from '@/lib/quiz/finish-the-outfit';
 import type { AudioClipSpec } from '@/lib/audio/types';
 
 interface CategoryWithQuestions extends Category {
   questions: Question[];
+}
+
+/** Reveals configured lyric lines one at a time, evenly across the clip. */
+function LyricTicker({
+  lines,
+  durationSec,
+  resetKey,
+}: {
+  lines: string[];
+  durationSec: number;
+  resetKey: string;
+}) {
+  const [index, setIndex] = useState(0);
+  useEffect(() => {
+    setIndex(0);
+    if (lines.length <= 1) return;
+    const step = Math.max(1500, (durationSec * 1000) / lines.length);
+    const id = setInterval(() => {
+      setIndex((i) => Math.min(lines.length - 1, i + 1));
+    }, step);
+    return () => clearInterval(id);
+  }, [lines.length, durationSec, resetKey]);
+
+  return (
+    <p
+      key={index}
+      className="font-serif text-5xl md:text-7xl leading-tight ss-chancen-in"
+    >
+      {lines[index]}
+    </p>
+  );
+}
+
+/** Types a string out, character by character. */
+function Typewriter({ text }: { text: string }) {
+  const [n, setN] = useState(0);
+  useEffect(() => {
+    setN(0);
+    if (!text) return;
+    const id = setInterval(() => {
+      setN((x) => {
+        if (x >= text.length) {
+          clearInterval(id);
+          return x;
+        }
+        return x + 1;
+      });
+    }, 55);
+    return () => clearInterval(id);
+  }, [text]);
+  return <span>{text.slice(0, n)}</span>;
 }
 
 export default function ScreenPage() {
@@ -86,6 +142,11 @@ export default function ScreenPage() {
     );
   }, [currentQuestion, currentCategoryName]);
 
+  const ftoEntry: FtoEntry | null = useMemo(() => {
+    if (!currentQuestion) return null;
+    return getFinishTheOutfitEntry(currentCategoryName, currentQuestion.points);
+  }, [currentQuestion, currentCategoryName]);
+
   const activeRound = gameState?.active_round ?? 0;
 
   // For two-round questions the audio comes from the active round.
@@ -100,18 +161,20 @@ export default function ScreenPage() {
     if (sbEntry?.questionAudio) return sbToClip(sbEntry.questionAudio);
     if (sorRound?.questionAudio) return sorToClip(sorRound.questionAudio);
     if (sorEntry?.questionAudio) return sorToClip(sorEntry.questionAudio);
+    if (ftoEntry?.questionAudio) return ftoToClip(ftoEntry.questionAudio);
     return undefined;
-  }, [gtaEntry, sbEntry, sorEntry, sorRound]);
+  }, [gtaEntry, sbEntry, sorEntry, sorRound, ftoEntry]);
 
   const revealClip: AudioClipSpec | undefined = useMemo(() => {
     if (gtaEntry?.revealAudio) return gtaEntry.revealAudio;
     if (sbEntry?.revealAudio) return sbToClip(sbEntry.revealAudio);
     if (sorRound?.revealAudio) return sorToClip(sorRound.revealAudio);
     if (sorEntry?.revealAudio) return sorToClip(sorEntry.revealAudio);
+    if (ftoEntry?.revealAudio) return ftoToClip(ftoEntry.revealAudio);
     return undefined;
-  }, [gtaEntry, sbEntry, sorEntry, sorRound]);
+  }, [gtaEntry, sbEntry, sorEntry, sorRound, ftoEntry]);
 
-  const hasRichEntry = !!gtaEntry || !!sbEntry || !!sorEntry;
+  const hasRichEntry = !!gtaEntry || !!sbEntry || !!sorEntry || !!ftoEntry;
 
   // Track which audio target was last triggered so state churn doesn't restart it.
   const lastAudioKeyRef = useRef<string>('');
@@ -558,6 +621,76 @@ export default function ScreenPage() {
       : null;
     // Show the animated loader while an open audio clip is playing.
     const showAudioVisual = !!openClip && !revealed;
+
+    // ---- Finish the (Out)fit: dedicated lyric layout ----
+    if (ftoEntry) {
+      const answersOpenF = !!gameState?.answers_open;
+      const qDuration = openClip?.duration ?? 30;
+      return (
+        <main className="min-h-screen bg-paper text-ink p-12 flex flex-col relative">
+          {audioGate}
+          {joinOverlay}
+          <header className="flex justify-between items-start mb-12">
+            <Logo size="md" />
+            <p className="text-sm uppercase tracking-[0.3em] text-stone-500">
+              Code · {game.code} · {currentQuestion.points} pts
+            </p>
+          </header>
+
+          <div className="flex-1 flex flex-col justify-center max-w-6xl mx-auto w-full">
+            <p className="text-sm uppercase tracking-[0.4em] text-stone-500 mb-3">
+              {ftoEntry.title}
+            </p>
+            <p className="font-serif italic text-2xl md:text-3xl text-stone-600 mb-12">
+              {ftoEntry.track}
+            </p>
+
+            {revealed ? (
+              <div>
+                <p className="text-sm uppercase tracking-widest text-stone-500 mb-4">
+                  The missing line
+                </p>
+                <p className="font-serif text-5xl md:text-7xl leading-tight">
+                  {ftoEntry.correctAnswer ? (
+                    <Typewriter text={ftoEntry.correctAnswer} />
+                  ) : (
+                    <span className="tracking-[0.15em] text-stone-500">
+                      {ftoEntry.maskedAnswer}
+                    </span>
+                  )}
+                </p>
+              </div>
+            ) : answersOpenF ? (
+              <div>
+                <p className="text-xl uppercase tracking-[0.3em] text-stone-500 mb-6">
+                  Finish the next line — answer on your phone
+                </p>
+                <p className="font-serif text-5xl md:text-7xl tracking-[0.15em] text-stone-500">
+                  {ftoEntry.maskedAnswer}
+                </p>
+              </div>
+            ) : (
+              <LyricTicker
+                lines={ftoEntry.lyricLines}
+                durationSec={qDuration}
+                resetKey={currentQuestion.id}
+              />
+            )}
+          </div>
+
+          <footer className="flex justify-between items-end mt-12">
+            <p className="text-sm uppercase tracking-widest text-stone-500">
+              {teams.length} teams in the room
+            </p>
+            {teams.slice(0, 3).map((t, i) => (
+              <p key={t.id} className="text-sm uppercase tracking-widest">
+                {i + 1}. {t.name} · {t.score}
+              </p>
+            ))}
+          </footer>
+        </main>
+      );
+    }
 
     return (
       <main className="min-h-screen bg-paper text-ink p-12 flex flex-col relative">

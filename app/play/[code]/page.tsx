@@ -19,6 +19,7 @@ import {
   getSelectedOrRejectedEntry,
   type SorChoice,
 } from '@/lib/quiz/selected-or-rejected';
+import { getFinishTheOutfitEntry } from '@/lib/quiz/finish-the-outfit';
 
 /** Visual countdown for a timed round. Remount (via key) to restart. */
 function RoundTimer({ seconds }: { seconds: number }) {
@@ -77,6 +78,8 @@ export default function PlayPage() {
   // Multi-select (Q500): currently-checked song indices.
   const [multiSelect, setMultiSelect] = useState<number[]>([]);
   const [multiError, setMultiError] = useState('');
+  // Finish the (Out)fit: the team's bonus answer (Q400), if submitted.
+  const [myBonusAnswer, setMyBonusAnswer] = useState<string | null>(null);
 
   const loadCurrentQuestion = useCallback(
     async (questionId: string | null) => {
@@ -150,6 +153,7 @@ export default function PlayPage() {
       if (!questionId) {
         setMySubmission(null);
         setMyRounds({});
+        setMyBonusAnswer(null);
         return;
       }
       const { data } = await supabase
@@ -159,8 +163,26 @@ export default function PlayPage() {
         .eq('team_id', teamId)
         .order('submitted_at');
       const rows = data ?? [];
-      // Single-answer questions: keep the latest row for the "submitted" view.
-      setMySubmission(rows.length ? rows[rows.length - 1] : null);
+      // Bonus answer (Finish the (Out)fit Q400) is stored on its own row.
+      const bonusRow = rows.find(
+        (s) => (s.answer_payload as { bonusAnswer?: string })?.bonusAnswer
+      );
+      setMyBonusAnswer(
+        bonusRow
+          ? ((bonusRow.answer_payload as { bonusAnswer?: string }).bonusAnswer ??
+              null)
+          : null
+      );
+      // Primary answer row = not a bonus row and not a per-round row.
+      const mainRow =
+        rows.find((s) => {
+          const p = s.answer_payload as {
+            bonusAnswer?: string;
+            roundIndex?: number;
+          };
+          return !p?.bonusAnswer && p?.roundIndex == null;
+        }) ?? (rows.length ? rows[rows.length - 1] : null);
+      setMySubmission(mainRow);
       // Two-round questions: map each round's stored answer.
       const rounds: Record<number, string> = {};
       for (const s of rows) {
@@ -386,6 +408,43 @@ export default function PlayPage() {
     setSubmitting(false);
   };
 
+  // Finish the (Out)fit: submit the typed lyric (host-scored manually).
+  const submitLyric = async (text: string) => {
+    if (!currentQuestion || !team) return;
+    const clean = text.trim();
+    if (!clean) return;
+    setSubmitting(true);
+    const { data, error } = await supabase
+      .from('submissions')
+      .insert({
+        question_id: currentQuestion.id,
+        team_id: team.id,
+        answer_text: clean,
+        answer_payload: { lyricAnswer: clean },
+      })
+      .select()
+      .single();
+    if (!error && data) {
+      setMySubmission(data);
+      setAnswer('');
+    }
+    setSubmitting(false);
+  };
+
+  // Finish the (Out)fit Q400: submit the bonus answer (auto-scored on reveal).
+  const submitBonus = async (option: string) => {
+    if (!currentQuestion || !team) return;
+    setSubmitting(true);
+    const { error } = await supabase.from('submissions').insert({
+      question_id: currentQuestion.id,
+      team_id: team.id,
+      answer_text: `Bonus: ${option}`,
+      answer_payload: { bonusAnswer: option },
+    });
+    if (!error) setMyBonusAnswer(option);
+    setSubmitting(false);
+  };
+
   // Selected/Rejected choice submission (auto-scored on reveal by the host API).
   const submitChoice = async (choice: SorChoice) => {
     if (!currentQuestion || !team) return;
@@ -496,6 +555,152 @@ export default function PlayPage() {
             categoryName,
             currentQuestion.points
           );
+          const fto = getFinishTheOutfitEntry(
+            categoryName,
+            currentQuestion.points
+          );
+
+          // Finish the (Out)fit — listen, then type the missing lyric.
+          if (fto) {
+            const answersOpenF = !!gameState?.answers_open;
+            const revealedF = !!gameState?.answer_revealed;
+            const submittedMain = !!mySubmission;
+            return (
+              <div className="max-w-md mx-auto">
+                <div className="mb-8">
+                  <p className="text-xs uppercase tracking-widest text-stone-500 mb-2">
+                    {currentQuestion.points} points · {fto.title}
+                  </p>
+                  <h2 className="font-serif text-2xl leading-snug">
+                    {fto.prompt}
+                  </h2>
+                </div>
+
+                {/* Private paid hint (Q500) — only for the buying team */}
+                {fto.hint && hintPurchased && (
+                  <div className="mb-8 border border-stone-200 p-4">
+                    <p className="text-xs uppercase tracking-widest text-stone-500 mb-2">
+                      Your hint
+                    </p>
+                    <p className="font-serif italic text-xl">{fto.hint.text}</p>
+                  </div>
+                )}
+
+                {revealedF ? (
+                  <div className="border-t border-ink pt-6">
+                    <p className="text-xs uppercase tracking-widest text-stone-500 mb-2">
+                      Revealed
+                    </p>
+                    {fto.correctAnswer ? (
+                      <p className="font-serif italic text-2xl">
+                        {fto.correctAnswer}
+                      </p>
+                    ) : (
+                      <p className="text-stone-600">
+                        Look up — the answer is on the big screen.
+                      </p>
+                    )}
+                    {submittedMain && (
+                      <p className="mt-4 text-sm text-stone-500">
+                        Your answer: {mySubmission?.answer_text}
+                      </p>
+                    )}
+                    {fto.bonus && myBonusAnswer && (
+                      <p className="mt-2 text-sm text-stone-500">
+                        Bonus: {myBonusAnswer}
+                      </p>
+                    )}
+                  </div>
+                ) : !answersOpenF ? (
+                  <div className="text-center">
+                    <p className="text-sm uppercase tracking-[0.3em] text-stone-500 mb-6">
+                      Listen…
+                    </p>
+                    <SelectedSessionsLoader
+                      fullScreen={false}
+                      size="sm"
+                      background="transparent"
+                      srLabel="Listening"
+                    />
+                    <p className="mt-6 text-sm text-stone-500">
+                      Answers open the moment the song stops.
+                    </p>
+                  </div>
+                ) : !submittedMain ? (
+                  <div className="space-y-6">
+                    <p className="text-sm uppercase tracking-[0.2em] text-stone-500">
+                      Finish the next line
+                    </p>
+                    <p className="font-serif text-2xl tracking-[0.15em] text-stone-500">
+                      {fto.maskedAnswer}
+                    </p>
+                    <Input
+                      label="The missing line"
+                      type="text"
+                      value={answer}
+                      onChange={(e) => setAnswer(e.target.value)}
+                      autoFocus
+                      maxLength={120}
+                      className="text-lg"
+                    />
+                    <Button
+                      size="lg"
+                      className="w-full"
+                      disabled={submitting || !answer.trim()}
+                      onClick={() => submitLyric(answer)}
+                    >
+                      {submitting ? 'Submitting...' : 'Submit answer'}
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-8">
+                    <div className="border-t border-stone-200 pt-6">
+                      <p className="text-xs uppercase tracking-widest text-stone-500 mb-2">
+                        Submitted
+                      </p>
+                      <p className="font-serif italic text-xl text-stone-700">
+                        &ldquo;{mySubmission?.answer_text}&rdquo;
+                      </p>
+                      <p className="mt-4 text-sm text-stone-500">
+                        The host will score it. Sit tight.
+                      </p>
+                    </div>
+
+                    {/* Q400 bonus — appears only after the main answer */}
+                    {fto.bonus && (
+                      <div className="border-t border-stone-200 pt-6">
+                        <p className="text-xs uppercase tracking-[0.2em] text-stone-500 mb-3">
+                          Bonus
+                        </p>
+                        <p className="font-serif text-xl mb-4">
+                          {fto.bonus.prompt}
+                        </p>
+                        {myBonusAnswer ? (
+                          <p className="text-sm text-stone-600">
+                            Locked in: <strong>{myBonusAnswer}</strong>
+                          </p>
+                        ) : (
+                          <div className="grid grid-cols-1 gap-2">
+                            {fto.bonus.options.map((opt) => (
+                              <button
+                                key={opt}
+                                disabled={submitting}
+                                onClick={() => submitBonus(opt)}
+                                className="border border-stone-300 px-4 py-3 text-left text-sm hover:border-ink transition-colors disabled:opacity-40"
+                              >
+                                {opt}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          }
+
           // Q200 two-round flow — dedicated rendering with its own per-round
           // storage, so it must take precedence over the single-submission view.
           if (sor?.type === 'tworound' && sor.rounds) {
