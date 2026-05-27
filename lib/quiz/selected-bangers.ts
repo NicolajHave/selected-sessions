@@ -36,6 +36,8 @@ export interface SelectedBangersEntry {
   trackInfo?: string;
   /** Manual-scoring guidance for the host panel. */
   acceptedGuidance?: string;
+  /** Optional image shown on the Big Screen when the answer is revealed. */
+  revealImage?: string;
   questionAudio?: AudioSegment;
   revealAudio?: AudioSegment;
   /** Q300: host can award a fixed bonus. */
@@ -80,6 +82,7 @@ export const SELECTED_BANGERS: Record<number, SelectedBangersEntry> = {
       'Daft Punk — Get Lucky. Featured artists: Pharrell Williams and Nile Rodgers.',
     acceptedGuidance:
       'Award the points if the team says Daft Punk AND at least one of: Pharrell Williams or Nile Rodgers.',
+    revealImage: '/images/selected-bangers/get-lucky-pharrell-nile.jpg',
     type: 'audio',
     questionAudio: {
       src: `${A}/get-lucky-radio-edit.mp3`,

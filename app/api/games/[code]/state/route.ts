@@ -5,6 +5,7 @@ import {
   getSelectedOrRejectedEntry,
   type SorChoice,
 } from '@/lib/quiz/selected-or-rejected';
+import { getFinishTheOutfitEntry } from '@/lib/quiz/finish-the-outfit';
 
 type ScoreResult = { scored: boolean; tie?: boolean; winner?: string };
 
@@ -149,6 +150,68 @@ async function autoScoreSelectedOrRejected(
   return { scored: true, winner };
 }
 
+/**
+ * Auto-scores ONLY the Q400 bonus for "Finish the (Out)fit". The main lyric
+ * answer stays host-scored. Idempotent via questions.auto_scored.
+ */
+async function autoScoreFinishBonus(
+  gameId: string,
+  questionId: string | null,
+): Promise<ScoreResult> {
+  if (!questionId) return { scored: false };
+
+  const { data: question } = await supabaseAdmin
+    .from('questions')
+    .select('*, categories(name)')
+    .eq('id', questionId)
+    .single();
+  if (!question) return { scored: false };
+
+  const categoryName = (question as { categories?: { name?: string } })
+    ?.categories?.name;
+  const entry = getFinishTheOutfitEntry(categoryName, question.points);
+  if (!entry?.bonus) return { scored: false };
+  if (question.auto_scored) return { scored: false };
+
+  const { data: subs } = await supabaseAdmin
+    .from('submissions')
+    .select('*')
+    .eq('question_id', questionId);
+  const { data: teams } = await supabaseAdmin
+    .from('teams')
+    .select('*')
+    .eq('game_id', gameId);
+  if (!teams) return { scored: false };
+
+  // Latest bonus answer per team.
+  const bonusByTeam = new Map<string, string>();
+  for (const s of subs ?? []) {
+    const b = (s.answer_payload as { bonusAnswer?: string })?.bonusAnswer;
+    if (b) bonusByTeam.set(s.team_id, b);
+  }
+
+  const { correct, abstainOption, correctPoints, wrongPoints } = entry.bonus;
+  for (const t of teams) {
+    const ans = bonusByTeam.get(t.id);
+    let delta = 0;
+    if (ans === correct) delta = correctPoints;
+    else if (ans && ans !== abstainOption) delta = wrongPoints;
+    if (delta !== 0) {
+      await supabaseAdmin
+        .from('teams')
+        .update({ score: t.score + delta })
+        .eq('id', t.id);
+    }
+  }
+
+  await supabaseAdmin
+    .from('questions')
+    .update({ auto_scored: true })
+    .eq('id', questionId);
+
+  return { scored: true };
+}
+
 export async function PATCH(
   req: NextRequest,
   { params }: { params: { code: string } }
@@ -247,13 +310,20 @@ export async function PATCH(
       if (error)
         return NextResponse.json({ error: error.message }, { status: 500 });
 
-      // Automatic scoring for Selected or Rejected questions.
+      // Automatic scoring on reveal: Selected or Rejected (full) and the
+      // Finish the (Out)fit Q400 bonus (main lyric stays host-scored).
       let scoring: ScoreResult | undefined;
       if (revealed && data?.current_question_id) {
         scoring = await autoScoreSelectedOrRejected(
           game.id,
           data.current_question_id,
         );
+        if (!scoring?.scored) {
+          scoring = await autoScoreFinishBonus(
+            game.id,
+            data.current_question_id,
+          );
+        }
       }
       return NextResponse.json({ gameState: data, scoring });
     }
