@@ -78,7 +78,7 @@ export const FINISH_THE_OUTFIT: Record<number, FtoEntry> = {
     points: 100,
     title: 'The Easy Fit',
     track: 'Backstreet Boys — I Want It That Way',
-    prompt: 'Finish the next line.',
+    prompt: 'Færdiggør den næste linje.',
     lyricLines: [
       'You are my fire',
       'The one desire',
@@ -121,7 +121,7 @@ export const FINISH_THE_OUTFIT: Record<number, FtoEntry> = {
     points: 200,
     title: 'The Mid-Verse Cut',
     track: 'Spice Girls — Wannabe',
-    prompt: 'Finish the next line.',
+    prompt: 'Færdiggør den næste linje.',
     lyricLines: [
       "Yo, I'll tell you what I want, what I really, really want",
       'So tell me what you want, what you really, really want',
@@ -182,7 +182,7 @@ export const FINISH_THE_OUTFIT: Record<number, FtoEntry> = {
     points: 300,
     title: 'The Nordic Fit',
     track: 'Lukas Graham — Drunk In The Morning',
-    prompt: 'Finish the next line.',
+    prompt: 'Færdiggør den næste linje.',
     lyricLines: [
       'Girl, I got one question',
       'Are you still awake?',
@@ -230,7 +230,7 @@ export const FINISH_THE_OUTFIT: Record<number, FtoEntry> = {
     points: 400,
     title: 'The Express Fit',
     track: 'David Guetta — When Love Takes Over feat. Kelly Rowland',
-    prompt: 'Finish the next line.',
+    prompt: 'Færdiggør den næste linje.',
     lyricLines: [
       "It's complicated, it always is",
       "That's just the way it goes",
@@ -293,7 +293,7 @@ export const FINISH_THE_OUTFIT: Record<number, FtoEntry> = {
     points: 500,
     title: 'The Full Look',
     track: 'Blue Swede / Björn Skifs — Hooked On A Feeling',
-    prompt: 'Finish the next line.',
+    prompt: 'Færdiggør den næste linje.',
     lyricLines: [
       'Ooga-Chaka, Ooga-Ooga',
       'Ooga-Chaka, Ooga-Ooga',

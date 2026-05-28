@@ -47,10 +47,14 @@ export interface AsHint {
 export interface AsEntry {
   points: number;
   title: string;
-  track: string;
+  /** Optional — leave undefined to hide the track subtitle (e.g. Q100 where
+   *  the song title is the answer and must not be revealed early). */
+  track?: string;
   prompt: string;
   answer: string;
   acceptedGuidance?: string;
+  /** Optional image shown on the Big Screen when the answer is revealed. */
+  revealImage?: string;
   questionAudio?: AsAudioSegment;
   revealAudio?: AsAudioSegment;
   questionVideo?: AsVideoSegment;
@@ -67,13 +71,13 @@ export const ARCHIVE_SOUNDS: Record<number, AsEntry> = {
   100: {
     points: 100,
     title: 'The 90s File',
-    track: 'Thomas Helmig — Stupid Man',
-    prompt: 'What is the title of this song?',
+    // track intentionally omitted — the song title is the answer and must not be revealed via the subtitle.
+    prompt: 'Hvad hedder denne sang?',
     answer: 'Stupid Man',
     questionAudio: {
       src: `${A}/thomas-helmig-stupid-man.mp3`,
       startTime: 0,
-      duration: 1,
+      duration: 2,
       fadeOutSeconds: 0,
       autoPlayOnOpen: false,
       manuallyTriggered: true,
@@ -89,7 +93,7 @@ export const ARCHIVE_SOUNDS: Record<number, AsEntry> = {
     points: 200,
     title: 'The 80s File',
     track: 'GNAGS — Når Jeg Bli’r Gammel',
-    prompt: 'GNAGS released this song in 1989. Which album was it part of?',
+    prompt: 'GNAGS udgav denne sang i 1989. Hvilket album var den en del af?',
     answer: 'Mr. Swing King',
     questionAudio: {
       src: `${A}/gnags-naar-jeg-blir-gammel.mp3`,
@@ -110,7 +114,7 @@ export const ARCHIVE_SOUNDS: Record<number, AsEntry> = {
     title: 'The 70s File',
     track: 'Grease — You’re The One That I Want',
     prompt:
-      'What are the names of the two groups in the film that Sandy and Danny are part of?',
+      'Hvad hedder de to grupper i filmen som Sandy og Danny er en del af?',
     answer: 'The Pink Ladies and the T-Birds',
     acceptedGuidance:
       'Accept any answer that clearly includes both Pink Ladies and T-Birds.',
@@ -136,7 +140,7 @@ export const ARCHIVE_SOUNDS: Record<number, AsEntry> = {
     points: 400,
     title: 'The 60s File',
     track: 'Neil Diamond — Sweet Caroline',
-    prompt: 'What iconic crowd response is associated with this song?',
+    prompt: 'Hvilken ikonisk publikumsrespons forbindes med denne sang?',
     answer: 'Oh Oh Oh! [Åh Åh Åh]',
     acceptedGuidance:
       'Accept Oh Oh Oh, Åh Åh Åh, or similar phonetic variants.',
@@ -161,8 +165,9 @@ export const ARCHIVE_SOUNDS: Record<number, AsEntry> = {
     title: 'The 50s File',
     track: 'Big Mama Thornton — Hound Dog',
     prompt:
-      'In 1952, Big Mama Thornton recorded and released Hound Dog. A few years later, in 1956, it was immortalized by which artist?',
+      'I 1952 indspillede og udgav Big Mama Thornton denne sang. Nogle år senere, i 1956, blev den udødeliggjort af hvilken artist?',
     answer: 'Elvis Presley',
+    revealImage: '/images/reveals/elvis-presley.jpg',
     questionAudio: {
       src: `${A}/big-mama-thornton-hound-dog.mp3`,
       startTime: 0,

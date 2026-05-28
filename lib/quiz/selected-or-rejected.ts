@@ -105,7 +105,7 @@ export const SELECTED_OR_REJECTED: Record<number, SorEntry> = {
     type: 'tworound',
     rounds: [
       {
-        statement: 'Oops, We did it again',
+        statement: 'Oops, We Did It Again',
         correct: 'Rejected',
         explanation: 'Rejected — the real lyric is “Oops!... I Did It Again”.',
         timerSeconds: 15,
@@ -149,7 +149,7 @@ export const SELECTED_OR_REJECTED: Record<number, SorEntry> = {
     points: 300,
     title: 'The Summer Party Vote',
     prompt:
-      'Would this song be Selected enough to be played at the Selected Summer Party?',
+      'Vil denne sang være Selected nok til at blive spillet til Selected Summer Party?',
     subPrompt: 'Selected or Rejected?',
     type: 'majority',
     track: 'Journey — Don’t Stop Believin’',
@@ -170,7 +170,7 @@ export const SELECTED_OR_REJECTED: Record<number, SorEntry> = {
   400: {
     points: 400,
     title: 'CHANCEN',
-    prompt: 'Celine Dion once participated in Eurovision.',
+    prompt: 'Céline Dion deltog engang i Eurovision.',
     subPrompt: 'Selected (True) or Rejected (False)?',
     type: 'chance',
     correct: 'Selected',
@@ -189,7 +189,7 @@ export const SELECTED_OR_REJECTED: Record<number, SorEntry> = {
     points: 500,
     title: 'Nicolaj’s Playlist',
     prompt:
-      'Which 3 of these songs would Nicolaj 100% sing along to in the car or in the shower?',
+      'Hvilke 3 af disse sange ville Nicolaj 100% synge med på i bilen eller i bruseren?',
     type: 'multiselect',
     songs: [
       'Alesso — Heroes (We Could Be) feat. Tove Lo',
