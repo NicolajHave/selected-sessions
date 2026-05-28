@@ -1268,14 +1268,18 @@ export default function ScreenPage() {
             </div>
           )}
 
-          {/* Reveal image for non-image questions (GTA Q300/Q500, SB Q200) */}
+          {/* Reveal image for non-image questions (GTA / SB / Archive Sounds) */}
           {revealed &&
-            (gtaEntry?.revealImage || sbEntry?.revealImage) && (
+            (gtaEntry?.revealImage ||
+              sbEntry?.revealImage ||
+              asEntry?.revealImage) && (
               <div className="mb-12">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={encodeURI(
-                    (gtaEntry?.revealImage ?? sbEntry?.revealImage)!,
+                    (gtaEntry?.revealImage ??
+                      sbEntry?.revealImage ??
+                      asEntry?.revealImage)!,
                   )}
                   alt={displayAnswer}
                   className="max-h-[50vh] w-auto mx-auto object-contain"

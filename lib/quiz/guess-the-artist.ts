@@ -69,7 +69,7 @@ export const GUESS_THE_ARTIST: Record<number, GuessTheArtistEntry> = {
     prompt: 'Hvem åbnede Orange Scene i 2025?',
     answer: 'Annika',
     type: 'text',
-    revealImage: '/quiz-assets/images/annika.jpg',
+    revealImage: '/images/reveals/annika.png',
     revealAudio: {
       src: '/quiz-assets/audio/Blodigt (feat. Annika).mp3',
       startAt: 58,
@@ -79,7 +79,7 @@ export const GUESS_THE_ARTIST: Record<number, GuessTheArtistEntry> = {
   },
   400: {
     points: 400,
-    prompt: 'Who did this song?',
+    prompt: 'Hvem lavede denne sang?',
     answer: 'Swedish House Mafia & Coldplay - Every Teardrop is a Waterfall',
     type: 'audio',
     openAudio: {
@@ -97,10 +97,10 @@ export const GUESS_THE_ARTIST: Record<number, GuessTheArtistEntry> = {
   },
   500: {
     points: 500,
-    prompt: 'Who did this song?',
+    prompt: 'Hvem lavede denne sang?',
     answer: 'Queen - Fat Bottomed Girls',
     type: 'audio',
-    revealImage: '/quiz-assets/images/queen.jpg',
+    revealImage: '/images/reveals/queen.png',
     openAudio: {
       src: '/quiz-assets/audio/Fat Bottomed Girls - Remastered 2011.mp3',
       startAt: 0,

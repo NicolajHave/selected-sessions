@@ -56,7 +56,7 @@ export const SELECTED_BANGERS: Record<number, SelectedBangersEntry> = {
   100: {
     points: 100,
     title: 'The Drop',
-    prompt: 'Name the track and artist before the drop hits.',
+    prompt: 'Nævn sang og artist før drop\'et.',
     answer: 'Levels — Avicii',
     type: 'audio',
     questionAudio: {
@@ -77,7 +77,7 @@ export const SELECTED_BANGERS: Record<number, SelectedBangersEntry> = {
     points: 200,
     title: 'The Groove',
     prompt:
-      'Who made this song, and who is featured on it? Name at least one featured artist.',
+      'Hvem lavede denne sang, og hvem er featured? Nævn mindst én featured artist.',
     answer:
       'Daft Punk — Get Lucky. Featured artists: Pharrell Williams and Nile Rodgers.',
     acceptedGuidance:
@@ -102,7 +102,7 @@ export const SELECTED_BANGERS: Record<number, SelectedBangersEntry> = {
     points: 300,
     title: 'The Mashup',
     prompt:
-      'Which two songs are mixed in this track? Name either the song titles or the artists.',
+      'Hvilke to sange er mixet i dette nummer? Nævn enten sangtitlerne eller artisterne.',
     answer: 'I Like To Move It — Reel 2 Real  &  Temperature — Sean Paul',
     acceptedGuidance:
       'Song titles only = OK. Artists only = OK. Both titles + both artists = perfect → use the +50 Bonus button.',
@@ -127,7 +127,7 @@ export const SELECTED_BANGERS: Record<number, SelectedBangersEntry> = {
     points: 400,
     title: 'The Night Club Banger',
     trackInfo: 'I Gotta Feeling — Black Eyed Peas',
-    prompt: 'What year was this song released?',
+    prompt: 'Hvilket år er sangen fra?',
     answer: '2009',
     type: 'year-slider',
     slider: { min: 2000, max: 2010, step: 1 },
@@ -148,9 +148,10 @@ export const SELECTED_BANGERS: Record<number, SelectedBangersEntry> = {
   500: {
     points: 500,
     title: 'The Origin',
-    prompt: 'Which country is this song from?',
+    prompt: 'Hvilket land stammer denne sang fra?',
     answer: 'Italy',
     type: 'audio-with-private-hint',
+    revealImage: '/images/reveals/italy-flag.png',
     hint: { cost: 100, image: '/images/hints/colosseum-sketch.jpg' },
     questionAudio: {
       src: `${A}/freed-from-desire.mp3`,
