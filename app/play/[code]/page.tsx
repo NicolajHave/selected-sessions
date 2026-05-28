@@ -20,6 +20,7 @@ import {
   type SorChoice,
 } from '@/lib/quiz/selected-or-rejected';
 import { getFinishTheOutfitEntry } from '@/lib/quiz/finish-the-outfit';
+import { getArchiveSoundsEntry } from '@/lib/quiz/archive-sounds';
 
 /** Visual countdown for a timed round. Remount (via key) to restart. */
 function RoundTimer({ seconds }: { seconds: number }) {
@@ -559,6 +560,10 @@ export default function PlayPage() {
             categoryName,
             currentQuestion.points
           );
+          const as = getArchiveSoundsEntry(
+            categoryName,
+            currentQuestion.points
+          );
 
           // Finish the (Out)fit — listen, then type the missing lyric.
           if (fto) {
@@ -1063,8 +1068,13 @@ export default function PlayPage() {
               <p className="text-xs uppercase tracking-widest text-stone-500 mb-2">
                 {currentQuestion.points} points
               </p>
+              {as?.title && (
+                <p className="text-xs uppercase tracking-[0.3em] text-stone-500 mb-2">
+                  {as.title}
+                </p>
+              )}
               <h2 className="font-serif text-2xl leading-snug">
-                {sor?.prompt ?? sb?.prompt ?? currentQuestion.prompt}
+                {sor?.prompt ?? sb?.prompt ?? as?.prompt ?? currentQuestion.prompt}
               </h2>
               {sor?.subPrompt && (
                 <p className="text-sm uppercase tracking-[0.2em] text-stone-500 mt-3">
@@ -1082,6 +1092,25 @@ export default function PlayPage() {
                 </p>
               )}
             </div>
+
+            {/* Archive Sounds Q500 paid image hint */}
+            {as?.hint && hintPurchased && (
+              <div className="mb-8 border border-stone-200 p-4">
+                <p className="text-xs uppercase tracking-widest text-stone-500 mb-3">
+                  Your hint
+                </p>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={encodeURI(as.hint.image)}
+                  alt={as.hint.alt ?? 'Purchased hint'}
+                  className="w-full h-auto"
+                  onError={(e) => {
+                    (e.currentTarget as HTMLImageElement).style.display =
+                      'none';
+                  }}
+                />
+              </div>
+            )}
 
             {/* Private paid hint — only visible to a team that bought it */}
             {sb?.hint && hintPurchased && (

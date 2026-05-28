@@ -29,6 +29,10 @@ import {
   getFinishTheOutfitEntry,
   ftoSegmentDuration,
 } from '@/lib/quiz/finish-the-outfit';
+import {
+  getArchiveSoundsEntry,
+  asAudioToClip,
+} from '@/lib/quiz/archive-sounds';
 
 interface CategoryWithQuestions extends Category {
   questions: Question[];
@@ -401,6 +405,24 @@ export default function HostGamePage() {
     setTimeout(() => supabase.removeChannel(channel), 300);
   }
 
+  // Triggers a short audio cue on the Big Screen (Archive Sounds Q100).
+  async function playCue(spec: {
+    src: string;
+    startAt: number;
+    duration: number;
+    fadeOut?: number;
+  }) {
+    if (!game) return;
+    const channel = supabase.channel(`audio_control:${game.id}`);
+    await channel.subscribe();
+    await channel.send({
+      type: 'broadcast',
+      event: 'play_cue',
+      payload: spec,
+    });
+    setTimeout(() => supabase.removeChannel(channel), 300);
+  }
+
   // Mute / unmute the Big Screen waiting-room music (transient broadcast).
   async function setWaitingMute(muted: boolean) {
     if (!game) return;
@@ -623,13 +645,19 @@ export default function HostGamePage() {
                   cat?.name,
                   currentQuestion.points,
                 );
-                const isRich = !!gta || !!sb || !!sor || !!fto;
-                const displayTitle = sb?.title ?? sor?.title ?? fto?.title;
+                const as = getArchiveSoundsEntry(
+                  cat?.name,
+                  currentQuestion.points,
+                );
+                const isRich = !!gta || !!sb || !!sor || !!fto || !!as;
+                const displayTitle =
+                  sb?.title ?? sor?.title ?? fto?.title ?? as?.title;
                 const displayPrompt =
                   gta?.prompt ??
                   sb?.prompt ??
                   sor?.prompt ??
                   fto?.prompt ??
+                  as?.prompt ??
                   currentQuestion.prompt;
                 const displayAnswer =
                   fto != null
@@ -637,12 +665,15 @@ export default function HostGamePage() {
                     : (gta?.answer ??
                       sb?.answer ??
                       sor?.correct ??
+                      as?.answer ??
                       currentQuestion.answer);
                 const hasOpenAudio =
                   !!gta?.openAudio ||
                   !!sb?.questionAudio ||
                   !!sor?.questionAudio ||
-                  !!fto;
+                  !!fto ||
+                  !!as?.questionAudio ||
+                  !!as?.questionVideo;
 
                 return (
                   <>
@@ -798,6 +829,141 @@ export default function HostGamePage() {
                 const sorCat = categories.find(
                   (c) => c.id === currentQuestion.category_id,
                 );
+                const asCur = getArchiveSoundsEntry(
+                  sorCat?.name,
+                  currentQuestion.points,
+                );
+                if (asCur) {
+                  // Group submissions by team (one main answer per team).
+                  const ansByTeam = new Map<string, string>();
+                  for (const s of submissions) {
+                    if (!ansByTeam.has(s.team_id)) {
+                      ansByTeam.set(s.team_id, s.answer_text);
+                    }
+                  }
+                  return (
+                    <div>
+                      {asCur.acceptedGuidance && (
+                        <div className="bg-clay/10 border border-clay/30 p-4 mb-4">
+                          <p className="text-xs uppercase tracking-widest text-clay mb-1">
+                            Accepted answer
+                          </p>
+                          <p className="text-sm text-stone-700">
+                            {asCur.acceptedGuidance}
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Q100: manually-triggered 1-second audio cue */}
+                      {asCur.questionAudio?.manuallyTriggered && (
+                        <div className="border border-stone-200 p-4 mb-6">
+                          <p className="text-xs uppercase tracking-widest text-stone-500 mb-2">
+                            Audio cue
+                          </p>
+                          <p className="text-xs text-stone-500 mb-3">
+                            Plays a 1-second snippet on the Big Screen — use
+                            this in place of the usual auto-play.
+                          </p>
+                          <Button
+                            size="sm"
+                            onClick={() =>
+                              playCue(asAudioToClip(asCur.questionAudio!))
+                            }
+                          >
+                            Play 1-second cue
+                          </Button>
+                        </div>
+                      )}
+
+                      <p className="text-xs uppercase tracking-widest text-stone-500 mb-1">
+                        Answers ({ansByTeam.size}/{teams.length})
+                      </p>
+                      <p className="text-xs text-stone-500 mb-4">
+                        Host-scored. Click Correct to award {asCur.points}.
+                      </p>
+                      {ansByTeam.size === 0 ? (
+                        <p className="text-stone-500 text-sm">
+                          No answers yet.
+                        </p>
+                      ) : (
+                        <ul className="space-y-px">
+                          {teams
+                            .filter((t) => ansByTeam.has(t.id))
+                            .map((t) => (
+                              <li
+                                key={t.id}
+                                className="flex items-center justify-between py-3 border-b border-stone-200"
+                              >
+                                <div className="flex-1 pr-3">
+                                  <p className="text-xs uppercase tracking-widest text-stone-500">
+                                    {t.name}
+                                  </p>
+                                  <p className="font-serif italic text-lg">
+                                    &ldquo;{ansByTeam.get(t.id)}&rdquo;
+                                  </p>
+                                </div>
+                                <div className="flex gap-2">
+                                  <button
+                                    onClick={() =>
+                                      awardPoints(t.id, asCur.points)
+                                    }
+                                    className="bg-ink text-paper px-4 py-2 text-xs uppercase tracking-widest hover:opacity-90"
+                                  >
+                                    Correct +{asCur.points}
+                                  </button>
+                                  <button
+                                    onClick={() =>
+                                      awardPoints(t.id, -asCur.points)
+                                    }
+                                    className="border border-stone-300 px-3 py-2 text-xs uppercase tracking-widest hover:border-ink"
+                                  >
+                                    −{asCur.points}
+                                  </button>
+                                </div>
+                              </li>
+                            ))}
+                        </ul>
+                      )}
+
+                      {/* Q500: paid image hint */}
+                      {asCur.hint && (
+                        <div className="mt-8 pt-6 border-t border-stone-200">
+                          <p className="text-xs uppercase tracking-widest text-stone-500 mb-1">
+                            Paid hint (−{asCur.hint.cost})
+                          </p>
+                          <p className="text-xs text-stone-500 mb-3">
+                            Subtracts {asCur.hint.cost} and shows the hint
+                            image on that team&rsquo;s own screen.
+                          </p>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <select
+                              value={hintTeamId}
+                              onChange={(e) => setHintTeamId(e.target.value)}
+                              className="border border-stone-300 px-3 py-2 text-sm bg-white"
+                            >
+                              <option value="">Select a team…</option>
+                              {teams.map((t) => (
+                                <option key={t.id} value={t.id}>
+                                  {t.name}
+                                </option>
+                              ))}
+                            </select>
+                            <button
+                              disabled={!hintTeamId}
+                              onClick={() =>
+                                buyHint(hintTeamId, asCur.hint!.cost)
+                              }
+                              className="bg-ink text-paper px-4 py-2 text-xs uppercase tracking-widest hover:opacity-90 disabled:opacity-30"
+                            >
+                              Buy hint (−{asCur.hint.cost})
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                }
+
                 const ftoCur = getFinishTheOutfitEntry(
                   sorCat?.name,
                   currentQuestion.points,
