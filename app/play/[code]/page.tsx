@@ -21,6 +21,7 @@ import {
 } from '@/lib/quiz/selected-or-rejected';
 import { getFinishTheOutfitEntry } from '@/lib/quiz/finish-the-outfit';
 import { getArchiveSoundsEntry } from '@/lib/quiz/archive-sounds';
+import { INTRO_QUESTION } from '@/lib/quiz/intro-question';
 
 /** Visual countdown for a timed round. Remount (via key) to restart. */
 function RoundTimer({ seconds }: { seconds: number }) {
@@ -79,6 +80,15 @@ export default function PlayPage() {
   // Multi-select (Q500): currently-checked song indices.
   const [multiSelect, setMultiSelect] = useState<number[]>([]);
   const [multiError, setMultiError] = useState('');
+  // Fastest Fit First (intro question).
+  const [introSlots, setIntroSlots] = useState<(string | null)[]>([
+    null,
+    null,
+    null,
+    null,
+  ]);
+  const [introSubmitted, setIntroSubmitted] = useState(false);
+  const [introNow, setIntroNow] = useState(Date.now());
   // Finish the (Out)fit: the team's bonus answer (Q400), if submitted.
   const [myBonusAnswer, setMyBonusAnswer] = useState<string | null>(null);
 
@@ -409,6 +419,50 @@ export default function PlayPage() {
     setSubmitting(false);
   };
 
+  // Fastest Fit First: submit the team's ordered options.
+  const submitIntroOrder = async () => {
+    if (!team || !game) return;
+    if (introSlots.some((s) => s == null)) return;
+    setSubmitting(true);
+    const { error } = await supabase.from('intro_submissions').insert({
+      game_id: game.id,
+      team_id: team.id,
+      submitted_order: introSlots,
+    });
+    if (!error) setIntroSubmitted(true);
+    setSubmitting(false);
+  };
+
+  // Reset intro slots when a new intro round begins; restore "locked" state
+  // if this team already submitted (e.g. page reload).
+  useEffect(() => {
+    if (!gameState?.intro_mode_active || !game || !team) {
+      setIntroSubmitted(false);
+      setIntroSlots([null, null, null, null]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from('intro_submissions')
+        .select('id')
+        .eq('game_id', game.id)
+        .eq('team_id', team.id)
+        .maybeSingle();
+      if (!cancelled) setIntroSubmitted(!!data);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [gameState?.intro_mode_active, gameState?.intro_started_at, game, team]);
+
+  // Tick while intro countdown is running.
+  useEffect(() => {
+    if (!gameState?.intro_mode_active || gameState?.intro_revealed) return;
+    const id = setInterval(() => setIntroNow(Date.now()), 300);
+    return () => clearInterval(id);
+  }, [gameState?.intro_mode_active, gameState?.intro_revealed]);
+
   // Finish the (Out)fit: submit the typed lyric (host-scored manually).
   const submitLyric = async (text: string) => {
     if (!currentQuestion || !team) return;
@@ -506,6 +560,151 @@ export default function PlayPage() {
       </header>
 
       <div className="flex-1 px-6 py-8">
+        {gameState?.intro_mode_active ? (
+          (() => {
+            const startedMs = gameState.intro_started_at
+              ? new Date(gameState.intro_started_at).getTime()
+              : 0;
+            const elapsedSec = startedMs
+              ? (introNow - startedMs) / 1000
+              : 0;
+            const remaining = Math.max(
+              0,
+              INTRO_QUESTION.timerSeconds - elapsedSec,
+            );
+            const pct = (remaining / INTRO_QUESTION.timerSeconds) * 100;
+            const expired = remaining <= 0;
+            const used = new Set(introSlots.filter(Boolean) as string[]);
+            const remainingOptions = INTRO_QUESTION.options.filter(
+              (o) => !used.has(o),
+            );
+            const filled = introSlots.every((s) => s != null);
+            const locked =
+              introSubmitted || expired || !!gameState.intro_revealed;
+            return (
+              <div className="max-w-md mx-auto">
+                <div className="mb-6">
+                  <p className="text-xs uppercase tracking-[0.3em] text-stone-500 mb-2">
+                    {INTRO_QUESTION.title}
+                  </p>
+                  <h2 className="font-serif text-2xl leading-snug">
+                    {INTRO_QUESTION.prompt}
+                  </h2>
+                </div>
+
+                <div className="mb-6">
+                  <div className="flex items-baseline justify-between mb-2">
+                    <p className="text-xs uppercase tracking-widest text-stone-500">
+                      Time
+                    </p>
+                    <p className="font-serif text-2xl">
+                      {Math.ceil(remaining)}s
+                    </p>
+                  </div>
+                  <div className="h-1 bg-stone-200">
+                    <div
+                      className="h-1 bg-ink transition-[width] duration-300 ease-linear"
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                </div>
+
+                {gameState.intro_revealed ? (
+                  <div className="border-t border-ink pt-6">
+                    <p className="text-xs uppercase tracking-widest text-stone-500 mb-2">
+                      Revealed
+                    </p>
+                    <p className="text-stone-600">
+                      Look up — results are on the big screen.
+                    </p>
+                  </div>
+                ) : locked ? (
+                  <div className="border-t border-stone-200 pt-6 text-center">
+                    <p className="text-xs uppercase tracking-widest text-stone-500 mb-2">
+                      {introSubmitted ? 'Answer locked' : "Time's up"}
+                    </p>
+                    {introSubmitted && (
+                      <p className="text-stone-600">
+                        Wait for the host to reveal.
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <>
+                    <p className="text-xs uppercase tracking-widest text-stone-500 mb-3">
+                      Your order
+                    </p>
+                    <ol className="space-y-2 mb-6">
+                      {introSlots.map((s, i) => (
+                        <li key={i}>
+                          <button
+                            disabled={!s}
+                            onClick={() =>
+                              setIntroSlots((prev) =>
+                                prev.map((v, j) => (j === i ? null : v)),
+                              )
+                            }
+                            className={`w-full text-left px-4 py-3 border ${
+                              s
+                                ? 'border-ink bg-ink text-paper'
+                                : 'border-dashed border-stone-300 text-stone-400'
+                            } text-sm flex items-center gap-3`}
+                          >
+                            <span className="font-serif italic text-base opacity-70">
+                              {i + 1}.
+                            </span>
+                            <span className="flex-1">
+                              {s ?? 'Tap an option below'}
+                            </span>
+                          </button>
+                        </li>
+                      ))}
+                    </ol>
+
+                    {remainingOptions.length > 0 && (
+                      <>
+                        <p className="text-xs uppercase tracking-widest text-stone-500 mb-3">
+                          Options
+                        </p>
+                        <ul className="space-y-2 mb-6">
+                          {remainingOptions.map((opt) => (
+                            <li key={opt}>
+                              <button
+                                onClick={() =>
+                                  setIntroSlots((prev) => {
+                                    const next = [...prev];
+                                    const empty = next.findIndex(
+                                      (v) => v == null,
+                                    );
+                                    if (empty >= 0) next[empty] = opt;
+                                    return next;
+                                  })
+                                }
+                                className="w-full text-left px-4 py-3 border border-stone-300 text-sm hover:border-ink transition-colors"
+                              >
+                                {opt}
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      </>
+                    )}
+
+                    <Button
+                      size="lg"
+                      className="w-full"
+                      disabled={!filled || submitting}
+                      onClick={submitIntroOrder}
+                    >
+                      {submitting ? 'Submitting...' : 'Lock answer'}
+                    </Button>
+                  </>
+                )}
+              </div>
+            );
+          })()
+        ) : (
+          <>
         {/* Leaderboard view */}
         {gameState?.show_leaderboard && (
           <div className="text-center mt-12">
@@ -1256,6 +1455,8 @@ export default function PlayPage() {
           </div>
           );
         })()}
+          </>
+        )}
       </div>
     </main>
   );

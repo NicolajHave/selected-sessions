@@ -6,6 +6,7 @@ import {
   type SorChoice,
 } from '@/lib/quiz/selected-or-rejected';
 import { getFinishTheOutfitEntry } from '@/lib/quiz/finish-the-outfit';
+import { isCorrectIntroOrder } from '@/lib/quiz/intro-question';
 
 type ScoreResult = { scored: boolean; tie?: boolean; winner?: string };
 
@@ -514,6 +515,134 @@ export async function PATCH(
       return NextResponse.json({ team: updated, bought: true });
     }
 
+    case 'start_intro': {
+      // Pre-game "Fastest Fit First": clear any previous intro state + subs,
+      // then arm the timer.
+      await supabaseAdmin
+        .from('intro_submissions')
+        .delete()
+        .eq('game_id', game.id);
+      const { data, error } = await supabaseAdmin
+        .from('game_state')
+        .update({
+          intro_mode_active: true,
+          intro_started_at: new Date().toISOString(),
+          intro_revealed: false,
+          intro_winning_team_id: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('game_id', game.id)
+        .select()
+        .single();
+      if (error)
+        return NextResponse.json({ error: error.message }, { status: 500 });
+      return NextResponse.json({ gameState: data });
+    }
+
+    case 'cancel_intro': {
+      await supabaseAdmin
+        .from('intro_submissions')
+        .delete()
+        .eq('game_id', game.id);
+      const { data, error } = await supabaseAdmin
+        .from('game_state')
+        .update({
+          intro_mode_active: false,
+          intro_revealed: false,
+          intro_started_at: null,
+          intro_winning_team_id: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('game_id', game.id)
+        .select()
+        .single();
+      if (error)
+        return NextResponse.json({ error: error.message }, { status: 500 });
+      return NextResponse.json({ gameState: data });
+    }
+
+    case 'reveal_intro': {
+      // Score every submission against the correct order, persist submit_ms
+      // and is_correct, then pick the fastest correct team as winner.
+      const { data: state } = await supabaseAdmin
+        .from('game_state')
+        .select('intro_started_at')
+        .eq('game_id', game.id)
+        .single();
+      const startedMs = state?.intro_started_at
+        ? new Date(state.intro_started_at).getTime()
+        : 0;
+
+      const { data: subs } = await supabaseAdmin
+        .from('intro_submissions')
+        .select('*')
+        .eq('game_id', game.id);
+
+      let winnerId: string | null = null;
+      let bestMs = Number.POSITIVE_INFINITY;
+      for (const s of subs ?? []) {
+        const order = (s.submitted_order as string[]) ?? [];
+        const correct = isCorrectIntroOrder(order);
+        const submittedMs = new Date(s.submitted_at).getTime();
+        const submitMs = Math.max(0, submittedMs - startedMs);
+        await supabaseAdmin
+          .from('intro_submissions')
+          .update({ is_correct: correct, submit_ms: submitMs })
+          .eq('id', s.id);
+        if (correct && submitMs < bestMs) {
+          bestMs = submitMs;
+          winnerId = s.team_id;
+        }
+      }
+
+      const { data, error } = await supabaseAdmin
+        .from('game_state')
+        .update({
+          intro_revealed: true,
+          intro_winning_team_id: winnerId,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('game_id', game.id)
+        .select()
+        .single();
+      if (error)
+        return NextResponse.json({ error: error.message }, { status: 500 });
+      return NextResponse.json({ gameState: data, winnerId });
+    }
+
+    case 'set_starting_team': {
+      const { team_id } = body as { team_id: string | null };
+      const { data, error } = await supabaseAdmin
+        .from('game_state')
+        .update({
+          intro_winning_team_id: team_id ?? null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('game_id', game.id)
+        .select()
+        .single();
+      if (error)
+        return NextResponse.json({ error: error.message }, { status: 500 });
+      return NextResponse.json({ gameState: data });
+    }
+
+    case 'end_intro': {
+      // Host clicked Go to Board — leave the winner reference, just exit
+      // intro mode so the board renders.
+      const { data, error } = await supabaseAdmin
+        .from('game_state')
+        .update({
+          intro_mode_active: false,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('game_id', game.id)
+        .select()
+        .single();
+      if (error)
+        return NextResponse.json({ error: error.message }, { status: 500 });
+      return NextResponse.json({ gameState: data });
+    }
+
     case 'reset_game': {
       // Wipe teams (submissions cascade), reopen every question, clear state.
       // Keeps the game row, categories and questions themselves intact.
@@ -548,6 +677,10 @@ export async function PATCH(
           active_round: 0,
           winning_answer: null,
           chance_started: false,
+          intro_mode_active: false,
+          intro_started_at: null,
+          intro_revealed: false,
+          intro_winning_team_id: null,
           updated_at: new Date().toISOString(),
         })
         .eq('game_id', game.id)

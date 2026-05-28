@@ -12,7 +12,9 @@ import {
   type Submission,
   type Team,
   type QuestionWager,
+  type IntroSubmission,
 } from '@/lib/supabase/client';
+import { INTRO_QUESTION } from '@/lib/quiz/intro-question';
 import { Logo } from '@/components/shared/Logo';
 import { Button } from '@/components/shared/Button';
 import { getGuessTheArtistEntry } from '@/lib/quiz/guess-the-artist';
@@ -52,6 +54,8 @@ export default function HostGamePage() {
   const [hintTeamId, setHintTeamId] = useState<string>('');
   const [waitingMuted, setWaitingMuted] = useState(false);
   const [wagers, setWagers] = useState<QuestionWager[]>([]);
+  const [introSubs, setIntroSubs] = useState<IntroSubmission[]>([]);
+  const [introNow, setIntroNow] = useState(Date.now());
 
   // Auto-close timer for Selected Bangers questions with autoCloseOnEnd.
   const autoCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -122,6 +126,15 @@ export default function HostGamePage() {
     setWagers(data || []);
   }, []);
 
+  const reloadIntroSubs = useCallback(async (gameId: string) => {
+    const { data } = await supabase
+      .from('intro_submissions')
+      .select('*')
+      .eq('game_id', gameId)
+      .order('submitted_at');
+    setIntroSubs((data as IntroSubmission[]) || []);
+  }, []);
+
   const loadCurrentQuestion = useCallback(async (qid: string | null) => {
     if (!qid) {
       setCurrentQuestion(null);
@@ -167,6 +180,7 @@ export default function HostGamePage() {
         await reloadSubmissions(stateData.current_question_id);
         await reloadWagers(stateData.current_question_id);
       }
+      await reloadIntroSubs(gameData.id);
 
       setLoading(false);
     }
@@ -178,8 +192,37 @@ export default function HostGamePage() {
     reloadTeams,
     reloadSubmissions,
     reloadWagers,
+    reloadIntroSubs,
     loadCurrentQuestion,
   ]);
+
+  // Realtime: intro submissions (Fastest Fit First).
+  useEffect(() => {
+    if (!game) return;
+    const channel = supabase
+      .channel(`intro_subs:${game.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'intro_submissions',
+          filter: `game_id=eq.${game.id}`,
+        },
+        () => reloadIntroSubs(game.id)
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [game, reloadIntroSubs]);
+
+  // Live "now" tick while intro is running so the countdown updates.
+  useEffect(() => {
+    if (!gameState?.intro_mode_active || gameState?.intro_revealed) return;
+    const id = setInterval(() => setIntroNow(Date.now()), 250);
+    return () => clearInterval(id);
+  }, [gameState?.intro_mode_active, gameState?.intro_revealed]);
 
   // ---- Realtime: wagers for current question (CHANCEN) ----
   useEffect(() => {
@@ -531,6 +574,206 @@ export default function HostGamePage() {
         <div className="px-6 py-6 border-r border-stone-200">
           {!currentQuestion ? (
             <div>
+              {gameState?.intro_mode_active ? (
+                (() => {
+                  const startedMs = gameState.intro_started_at
+                    ? new Date(gameState.intro_started_at).getTime()
+                    : 0;
+                  const elapsedSec = startedMs
+                    ? (introNow - startedMs) / 1000
+                    : 0;
+                  const remaining = Math.max(
+                    0,
+                    INTRO_QUESTION.timerSeconds - elapsedSec,
+                  );
+                  const submittedBy = new Set(introSubs.map((s) => s.team_id));
+                  const revealed = !!gameState.intro_revealed;
+                  const ranked = revealed
+                    ? [...introSubs]
+                        .map((s) => ({
+                          sub: s,
+                          team: teams.find((t) => t.id === s.team_id),
+                        }))
+                        .sort((a, b) => {
+                          const ac = !!a.sub.is_correct;
+                          const bc = !!b.sub.is_correct;
+                          if (ac && !bc) return -1;
+                          if (bc && !ac) return 1;
+                          return (
+                            (a.sub.submit_ms ?? 1e12) -
+                            (b.sub.submit_ms ?? 1e12)
+                          );
+                        })
+                    : [];
+                  const noSub = revealed
+                    ? teams.filter((t) => !submittedBy.has(t.id))
+                    : [];
+                  const winnerTeam = teams.find(
+                    (t) => t.id === gameState.intro_winning_team_id,
+                  );
+                  return (
+                    <div>
+                      <div className="mb-6">
+                        <p className="text-xs uppercase tracking-[0.3em] text-stone-500 mb-1">
+                          Intro question
+                        </p>
+                        <h2 className="font-serif text-3xl tracking-tight">
+                          {INTRO_QUESTION.title}
+                        </h2>
+                        <p className="text-stone-600 mt-2">
+                          {INTRO_QUESTION.prompt}
+                        </p>
+                      </div>
+
+                      {!revealed && (
+                        <>
+                          <div className="mb-6 flex items-baseline gap-6">
+                            <div>
+                              <p className="text-xs uppercase tracking-widest text-stone-500">
+                                Time
+                              </p>
+                              <p className="font-serif text-5xl">
+                                {Math.ceil(remaining)}s
+                              </p>
+                            </div>
+                            <div className="flex-1 h-1 bg-stone-200">
+                              <div
+                                className="h-1 bg-ink transition-[width] duration-300 ease-linear"
+                                style={{
+                                  width: `${(remaining / INTRO_QUESTION.timerSeconds) * 100}%`,
+                                }}
+                              />
+                            </div>
+                          </div>
+                          <p className="text-xs uppercase tracking-widest text-stone-500 mb-3">
+                            Submissions ({submittedBy.size}/{teams.length})
+                          </p>
+                          <ul className="mb-6 space-y-px">
+                            {teams.map((t) => (
+                              <li
+                                key={t.id}
+                                className="flex justify-between text-sm py-2 border-b border-stone-100"
+                              >
+                                <span>{t.name}</span>
+                                <span
+                                  className={
+                                    submittedBy.has(t.id)
+                                      ? 'uppercase tracking-widest text-xs text-ink'
+                                      : 'uppercase tracking-widest text-xs text-stone-400'
+                                  }
+                                >
+                                  {submittedBy.has(t.id) ? 'Locked' : 'Waiting'}
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                          <div className="flex flex-wrap gap-2">
+                            <Button
+                              size="sm"
+                              onClick={() => callApi('reveal_intro')}
+                            >
+                              Reveal intro results
+                            </Button>
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              onClick={() => {
+                                if (
+                                  window.confirm(
+                                    'Cancel the intro question? All submissions are cleared.',
+                                  )
+                                )
+                                  callApi('cancel_intro');
+                              }}
+                            >
+                              Cancel intro question
+                            </Button>
+                          </div>
+                        </>
+                      )}
+
+                      {revealed && (
+                        <>
+                          <p className="text-xs uppercase tracking-widest text-stone-500 mb-3">
+                            Results
+                          </p>
+                          <ul className="mb-6 space-y-px">
+                            {ranked.map(({ sub, team }, i) => (
+                              <li
+                                key={sub.id}
+                                className="flex justify-between text-sm py-2 border-b border-stone-100"
+                              >
+                                <span>
+                                  {i + 1}. {team?.name ?? '—'}
+                                </span>
+                                <span
+                                  className={
+                                    sub.is_correct
+                                      ? 'uppercase tracking-widest text-xs text-ink'
+                                      : 'uppercase tracking-widest text-xs text-stone-400'
+                                  }
+                                >
+                                  {sub.is_correct ? 'Correct' : 'Incorrect'} ·{' '}
+                                  {sub.submit_ms != null
+                                    ? (sub.submit_ms / 1000).toFixed(1)
+                                    : '—'}
+                                  s
+                                </span>
+                              </li>
+                            ))}
+                            {noSub.map((t) => (
+                              <li
+                                key={t.id}
+                                className="flex justify-between text-sm py-2 border-b border-stone-100 text-stone-400"
+                              >
+                                <span>{t.name}</span>
+                                <span className="uppercase tracking-widest text-xs">
+                                  No submission
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+
+                          {winnerTeam ? (
+                            <p className="font-serif italic text-2xl mb-6">
+                              {winnerTeam.name} starts the session.
+                            </p>
+                          ) : (
+                            <div className="mb-6">
+                              <p className="text-stone-600 mb-3">
+                                No exact match — pick the starting team:
+                              </p>
+                              <div className="flex flex-wrap gap-2">
+                                {teams.map((t) => (
+                                  <button
+                                    key={t.id}
+                                    onClick={() =>
+                                      callApi('set_starting_team', {
+                                        team_id: t.id,
+                                      })
+                                    }
+                                    className="border border-stone-300 px-3 py-2 text-xs uppercase tracking-widest hover:border-ink"
+                                  >
+                                    {t.name}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          <Button
+                            size="sm"
+                            onClick={() => callApi('end_intro')}
+                          >
+                            Go to board
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                  );
+                })()
+              ) : (
+                <>
               <div className="flex items-center justify-between mb-6">
                 <p className="text-xs uppercase tracking-widest text-stone-500">
                   The board
@@ -544,6 +787,12 @@ export default function HostGamePage() {
                       {waitingMuted ? 'Unmute music' : 'Mute music'}
                     </button>
                   )}
+                  <button
+                    onClick={() => callApi('start_intro')}
+                    className="text-xs uppercase tracking-widest text-clay hover:opacity-80 transition-colors"
+                  >
+                    Start intro question
+                  </button>
                   <button
                     onClick={async () => {
                       await callApi('toggle_join', {
@@ -610,6 +859,8 @@ export default function HostGamePage() {
                   })
                 )}
               </div>
+                </>
+              )}
             </div>
           ) : (
             <div>
