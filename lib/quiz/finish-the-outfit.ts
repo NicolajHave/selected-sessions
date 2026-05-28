@@ -325,7 +325,12 @@ export const FINISH_THE_OUTFIT: Record<number, FtoEntry> = {
       "I'm hooked on a feelin'",
       "I'm high on believin'",
     ],
+    lyricTimings: [
+      0, 2, 4, 6, 8, 12, 15, 21, 24, 27, 29, 31, 33, 40, 44, 50.5, 54, 58.5,
+      61.5, 66.5, 70.5, 74, 77.5, 81.5, 84, 86, 88, 90, 96.5,
+    ],
     maskedAnswer: "---- ---'-- -- ---- ---- --",
+    maskedAnswerTime: 100,
     correctAnswer: "That you're in love with me",
     questionAudio: {
       src: `${A}/blue-swede-hooked-on-a-feeling.mp3`,
