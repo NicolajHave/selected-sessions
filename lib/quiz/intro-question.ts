@@ -5,20 +5,20 @@
 
 export const INTRO_QUESTION = {
   title: 'Fastest Fit First',
-  prompt: 'Put the Selected Sessions game flow in the correct order.',
+  prompt: 'Put these audiences in order from smallest to largest.',
   options: [
-    'Pick a category',
-    'Hear the cue',
-    'Lock your answer',
-    'Reveal the answer',
+    'Selected Summer Party',
+    'Solo Shower Concert',
+    'Hede Rytmer Crowd',
+    'Selected Team Day Car Singalong',
   ] as const,
   correctOrder: [
-    'Pick a category',
-    'Hear the cue',
-    'Lock your answer',
-    'Reveal the answer',
+    'Solo Shower Concert',
+    'Selected Team Day Car Singalong',
+    'Selected Summer Party',
+    'Hede Rytmer Crowd',
   ] as const,
-  timerSeconds: 30,
+  timerSeconds: 20,
 };
 
 export function isCorrectIntroOrder(submitted: string[]): boolean {
