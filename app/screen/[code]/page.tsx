@@ -33,6 +33,13 @@ import {
   ftoToClip,
   type FtoEntry,
 } from '@/lib/quiz/finish-the-outfit';
+import {
+  getArchiveSoundsEntry,
+  asAudioToClip,
+  asVideoDuration,
+  type AsEntry,
+  type AsVideoSegment,
+} from '@/lib/quiz/archive-sounds';
 import type { AudioClipSpec } from '@/lib/audio/types';
 
 interface CategoryWithQuestions extends Category {
@@ -143,6 +150,115 @@ function LyricTicker({
   );
 }
 
+/**
+ * Plays a slice of a video file from `startTime` for `durationSec`. Supports
+ * an optional opacity fade (and audio volume fade) over the final `fadeOutSec`
+ * seconds. Used by Archive Sounds for background and reveal videos.
+ */
+function VideoSegment({
+  src,
+  startTime,
+  durationSec,
+  baseOpacity = 1,
+  fadeOutSec = 0,
+  fadeToOpacity = null,
+  includeAudio = true,
+  className = '',
+}: {
+  src: string;
+  startTime: number;
+  durationSec: number;
+  baseOpacity?: number;
+  fadeOutSec?: number;
+  fadeToOpacity?: number | null;
+  includeAudio?: boolean;
+  className?: string;
+}) {
+  const ref = useRef<HTMLVideoElement>(null);
+  const [opacity, setOpacity] = useState(baseOpacity);
+
+  useEffect(() => {
+    setOpacity(baseOpacity);
+    const v = ref.current;
+    if (!v) return;
+    v.muted = !includeAudio;
+    v.volume = 1;
+
+    let stopT: ReturnType<typeof setTimeout> | null = null;
+    let fadeT: ReturnType<typeof setInterval> | null = null;
+
+    const start = () => {
+      try {
+        v.currentTime = startTime;
+      } catch {
+        /* ignore */
+      }
+      v.play().catch(() => {
+        /* autoplay may be blocked until user interacts */
+      });
+
+      if (fadeOutSec > 0) {
+        const fadeStartMs = Math.max(0, (durationSec - fadeOutSec) * 1000);
+        stopT = setTimeout(() => {
+          const steps = 20;
+          const stepMs = (fadeOutSec * 1000) / steps;
+          const startVol = v.volume;
+          const targetOp = fadeToOpacity ?? baseOpacity;
+          let i = 0;
+          fadeT = setInterval(() => {
+            i += 1;
+            v.volume = Math.max(0, startVol * (1 - i / steps));
+            setOpacity(baseOpacity + (targetOp - baseOpacity) * (i / steps));
+            if (i >= steps) {
+              if (fadeT) clearInterval(fadeT);
+              fadeT = null;
+              try {
+                v.pause();
+              } catch {
+                /* noop */
+              }
+            }
+          }, stepMs);
+        }, fadeStartMs);
+      } else {
+        stopT = setTimeout(
+          () => {
+            try {
+              v.pause();
+            } catch {
+              /* noop */
+            }
+          },
+          durationSec * 1000,
+        );
+      }
+    };
+
+    if (v.readyState >= 1) start();
+    else v.addEventListener('loadedmetadata', start, { once: true });
+
+    return () => {
+      if (stopT) clearTimeout(stopT);
+      if (fadeT) clearInterval(fadeT);
+      try {
+        v.pause();
+      } catch {
+        /* noop */
+      }
+    };
+  }, [src, startTime, durationSec, baseOpacity, fadeOutSec, fadeToOpacity, includeAudio]);
+
+  return (
+    <video
+      ref={ref}
+      src={encodeURI(src)}
+      className={className}
+      style={{ opacity }}
+      playsInline
+    />
+  );
+}
+
 /** Types a string out, character by character. */
 function Typewriter({ text }: { text: string }) {
   const [n, setN] = useState(0);
@@ -220,6 +336,11 @@ export default function ScreenPage() {
     return getFinishTheOutfitEntry(currentCategoryName, currentQuestion.points);
   }, [currentQuestion, currentCategoryName]);
 
+  const asEntry: AsEntry | null = useMemo(() => {
+    if (!currentQuestion) return null;
+    return getArchiveSoundsEntry(currentCategoryName, currentQuestion.points);
+  }, [currentQuestion, currentCategoryName]);
+
   const activeRound = gameState?.active_round ?? 0;
 
   // For two-round questions the audio comes from the active round.
@@ -235,8 +356,18 @@ export default function ScreenPage() {
     if (sorRound?.questionAudio) return sorToClip(sorRound.questionAudio);
     if (sorEntry?.questionAudio) return sorToClip(sorEntry.questionAudio);
     if (ftoEntry?.questionAudio) return ftoToClip(ftoEntry.questionAudio);
+    // Archive Sounds: skip if manually triggered (host fires a cue) or if a
+    // video provides the audio track.
+    if (
+      asEntry?.questionAudio &&
+      !asEntry.questionAudio.manuallyTriggered &&
+      asEntry.questionAudio.autoPlayOnOpen !== false &&
+      !asEntry.questionVideo
+    ) {
+      return asAudioToClip(asEntry.questionAudio);
+    }
     return undefined;
-  }, [gtaEntry, sbEntry, sorEntry, sorRound, ftoEntry]);
+  }, [gtaEntry, sbEntry, sorEntry, sorRound, ftoEntry, asEntry]);
 
   const revealClip: AudioClipSpec | undefined = useMemo(() => {
     if (gtaEntry?.revealAudio) return gtaEntry.revealAudio;
@@ -244,10 +375,15 @@ export default function ScreenPage() {
     if (sorRound?.revealAudio) return sorToClip(sorRound.revealAudio);
     if (sorEntry?.revealAudio) return sorToClip(sorEntry.revealAudio);
     if (ftoEntry?.revealAudio) return ftoToClip(ftoEntry.revealAudio);
+    // AS reveal audio only when there's no reveal video (video provides audio).
+    if (asEntry?.revealAudio && !asEntry.revealVideo) {
+      return asAudioToClip(asEntry.revealAudio);
+    }
     return undefined;
-  }, [gtaEntry, sbEntry, sorEntry, sorRound, ftoEntry]);
+  }, [gtaEntry, sbEntry, sorEntry, sorRound, ftoEntry, asEntry]);
 
-  const hasRichEntry = !!gtaEntry || !!sbEntry || !!sorEntry || !!ftoEntry;
+  const hasRichEntry =
+    !!gtaEntry || !!sbEntry || !!sorEntry || !!ftoEntry || !!asEntry;
 
   // Track which audio target was last triggered so state churn doesn't restart it.
   const lastAudioKeyRef = useRef<string>('');
@@ -450,6 +586,11 @@ export default function ScreenPage() {
       .on('broadcast', { event: 'toggle_waiting_mute' }, (msg) => {
         const muted = !!(msg.payload as { muted?: boolean })?.muted;
         setWaitingMuted(muted);
+      })
+      .on('broadcast', { event: 'play_cue' }, (msg) => {
+        // Q100 (Archive Sounds) host-triggered short audio cue.
+        const clip = msg.payload as AudioClipSpec;
+        if (clip?.src) play(clip);
       })
       .subscribe();
     return () => {
@@ -669,7 +810,7 @@ export default function ScreenPage() {
     const chancePre = isChance && !chanceStarted && !revealed;
     const displayTitle = chancePre
       ? undefined
-      : (sbEntry?.title ?? sorEntry?.title);
+      : (sbEntry?.title ?? sorEntry?.title ?? asEntry?.title);
     const displayPrompt = chancePre
       ? 'CHANCEN'
       : isTwoRound && !revealed && sorRound
@@ -677,6 +818,7 @@ export default function ScreenPage() {
         : (gtaEntry?.prompt ??
           sbEntry?.prompt ??
           sorEntry?.prompt ??
+          asEntry?.prompt ??
           currentQuestion.prompt);
     const sorAnswer = sorEntry
       ? sorEntry.type === 'majority'
@@ -684,8 +826,12 @@ export default function ScreenPage() {
         : (sorEntry.correct ?? currentQuestion.answer)
       : null;
     const displayAnswer =
-      gtaEntry?.answer ?? sbEntry?.answer ?? sorAnswer ?? currentQuestion.answer;
-    const trackInfo = sbEntry?.trackInfo ?? sorEntry?.track;
+      gtaEntry?.answer ??
+      sbEntry?.answer ??
+      sorAnswer ??
+      asEntry?.answer ??
+      currentQuestion.answer;
+    const trackInfo = sbEntry?.trackInfo ?? sorEntry?.track ?? asEntry?.track;
     const imageSrc = gtaEntry
       ? revealed
         ? gtaEntry.revealedImage
@@ -767,19 +913,40 @@ export default function ScreenPage() {
       );
     }
 
+    const asQVid: AsVideoSegment | undefined =
+      asEntry?.questionVideo && !revealed ? asEntry.questionVideo : undefined;
+    const asRVid: AsVideoSegment | undefined =
+      asEntry?.revealVideo && revealed ? asEntry.revealVideo : undefined;
+
     return (
-      <main className="min-h-screen bg-paper text-ink p-12 flex flex-col relative">
+      <main className="min-h-screen bg-paper text-ink p-12 flex flex-col relative overflow-hidden">
         {audioGate}
         {joinOverlay}
 
-        <header className="flex justify-between items-start mb-12">
+        {/* Archive Sounds Q300: background video behind question content */}
+        {asQVid && (
+          <div className="absolute inset-0 z-0 pointer-events-none">
+            <VideoSegment
+              src={asQVid.src}
+              startTime={asQVid.startTime}
+              durationSec={asVideoDuration(asQVid)}
+              baseOpacity={asQVid.opacity ?? 1}
+              fadeOutSec={asQVid.fadeOutSeconds ?? 0}
+              fadeToOpacity={asQVid.fadeOutVideoToOpacity}
+              includeAudio={asQVid.includeAudio !== false}
+              className="absolute inset-0 w-full h-full object-cover"
+            />
+          </div>
+        )}
+
+        <header className="flex justify-between items-start mb-12 relative z-10">
           <Logo size="md" />
           <p className="text-sm uppercase tracking-[0.3em] text-stone-500">
             Code · {game.code} · {currentQuestion.points} pts
           </p>
         </header>
 
-        <div className="flex-1 flex flex-col justify-center max-w-6xl mx-auto w-full">
+        <div className="flex-1 flex flex-col justify-center max-w-6xl mx-auto w-full relative z-10">
           {displayTitle && (
             <p className="text-sm uppercase tracking-[0.4em] text-stone-500 mb-6">
               {displayTitle}
@@ -948,6 +1115,21 @@ export default function ScreenPage() {
             </div>
           ) : revealed ? (
             <div className="border-t border-ink pt-8">
+              {/* Archive Sounds reveal video (Q300/Q400) — plays its own audio */}
+              {asRVid && (
+                <div className="mb-8">
+                  <VideoSegment
+                    src={asRVid.src}
+                    startTime={asRVid.startTime}
+                    durationSec={asVideoDuration(asRVid)}
+                    baseOpacity={asRVid.opacity ?? 1}
+                    fadeOutSec={asRVid.fadeOutSeconds ?? 0}
+                    fadeToOpacity={asRVid.fadeOutVideoToOpacity}
+                    includeAudio={asRVid.includeAudio !== false}
+                    className="max-h-[55vh] w-auto mx-auto"
+                  />
+                </div>
+              )}
               <p className="text-sm uppercase tracking-widest text-stone-500 mb-4">
                 Answer
               </p>
