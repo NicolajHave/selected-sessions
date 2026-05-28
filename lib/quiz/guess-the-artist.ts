@@ -98,7 +98,7 @@ export const GUESS_THE_ARTIST: Record<number, GuessTheArtistEntry> = {
   500: {
     points: 500,
     prompt: 'Hvem lavede denne sang?',
-    answer: 'Queen - Fat Bottomed Girls',
+    answer: 'Queen',
     type: 'audio',
     revealImage: '/images/reveals/queen.png',
     openAudio: {
