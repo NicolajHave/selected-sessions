@@ -73,7 +73,21 @@ export interface GameState {
   active_round: number;
   winning_answer: string | null;
   chance_started: boolean;
+  intro_mode_active: boolean;
+  intro_started_at: string | null;
+  intro_revealed: boolean;
+  intro_winning_team_id: string | null;
   updated_at: string;
+}
+
+export interface IntroSubmission {
+  id: string;
+  game_id: string;
+  team_id: string;
+  submitted_order: string[];
+  is_correct: boolean | null;
+  submitted_at: string;
+  submit_ms: number | null;
 }
 
 export interface QuestionWager {

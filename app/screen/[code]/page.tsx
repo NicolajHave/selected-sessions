@@ -9,7 +9,9 @@ import {
   type Category,
   type Question,
   type Team,
+  type IntroSubmission,
 } from '@/lib/supabase/client';
+import { INTRO_QUESTION } from '@/lib/quiz/intro-question';
 import { QRCodeSVG } from 'qrcode.react';
 import { Logo } from '@/components/shared/Logo';
 import { SelectedSessionsLoader } from '@/components/SelectedSessionsLoader';
@@ -294,6 +296,8 @@ export default function ScreenPage() {
   const [wagers, setWagers] = useState<
     { team_id: string; wager_amount: number }[]
   >([]);
+  const [introSubs, setIntroSubs] = useState<IntroSubmission[]>([]);
+  const [introNow, setIntroNow] = useState(Date.now());
 
   useEffect(() => {
     if (typeof window !== 'undefined') setOrigin(window.location.origin);
@@ -432,6 +436,15 @@ export default function ScreenPage() {
     setWagers(data || []);
   }, []);
 
+  const reloadIntroSubs = useCallback(async (gameId: string) => {
+    const { data } = await supabase
+      .from('intro_submissions')
+      .select('*')
+      .eq('game_id', gameId)
+      .order('submitted_at');
+    setIntroSubs((data as IntroSubmission[]) || []);
+  }, []);
+
   const loadCurrentQuestion = useCallback(async (qid: string | null) => {
     if (!qid) {
       setCurrentQuestion(null);
@@ -474,12 +487,48 @@ export default function ScreenPage() {
         await loadCurrentQuestion(stateData.current_question_id);
         await reloadWagers(stateData.current_question_id);
       }
+      await reloadIntroSubs(gameData.id);
 
       setLoading(false);
     }
 
     init();
-  }, [code, reloadQuestions, reloadTeams, reloadWagers, loadCurrentQuestion]);
+  }, [
+    code,
+    reloadQuestions,
+    reloadTeams,
+    reloadWagers,
+    reloadIntroSubs,
+    loadCurrentQuestion,
+  ]);
+
+  // Realtime: intro submissions (Fastest Fit First).
+  useEffect(() => {
+    if (!game) return;
+    const channel = supabase
+      .channel(`screen_intro:${game.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'intro_submissions',
+          filter: `game_id=eq.${game.id}`,
+        },
+        () => reloadIntroSubs(game.id)
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [game, reloadIntroSubs]);
+
+  // Live "now" tick while the intro countdown is running.
+  useEffect(() => {
+    if (!gameState?.intro_mode_active || gameState?.intro_revealed) return;
+    const id = setInterval(() => setIntroNow(Date.now()), 250);
+    return () => clearInterval(id);
+  }, [gameState?.intro_mode_active, gameState?.intro_revealed]);
 
   // Realtime: game_state
   useEffect(() => {
@@ -762,12 +811,181 @@ export default function ScreenPage() {
     </div>
   ) : null;
 
+  // Fastest Fit First — pre-game intro question overlay.
+  const introOverlay = (() => {
+    if (!gameState?.intro_mode_active) return null;
+    const startedMs = gameState.intro_started_at
+      ? new Date(gameState.intro_started_at).getTime()
+      : 0;
+    const elapsedSec = startedMs ? (introNow - startedMs) / 1000 : 0;
+    const remaining = Math.max(
+      0,
+      INTRO_QUESTION.timerSeconds - elapsedSec,
+    );
+    const submittedBy = new Set(introSubs.map((s) => s.team_id));
+    const revealed = !!gameState.intro_revealed;
+    const ranked = revealed
+      ? [...introSubs]
+          .map((s) => ({
+            sub: s,
+            team: teams.find((t) => t.id === s.team_id),
+          }))
+          .sort((a, b) => {
+            const ac = !!a.sub.is_correct;
+            const bc = !!b.sub.is_correct;
+            if (ac && !bc) return -1;
+            if (bc && !ac) return 1;
+            return (
+              (a.sub.submit_ms ?? 1e12) - (b.sub.submit_ms ?? 1e12)
+            );
+          })
+      : [];
+    const noSub = revealed
+      ? teams.filter((t) => !submittedBy.has(t.id))
+      : [];
+    const winnerTeam = teams.find(
+      (t) => t.id === gameState.intro_winning_team_id,
+    );
+    const pct = (remaining / INTRO_QUESTION.timerSeconds) * 100;
+
+    return (
+      <div className="fixed inset-0 z-40 flex flex-col bg-paper p-12">
+        <header className="flex justify-between items-start mb-12">
+          <Logo size="md" />
+          <p className="text-sm uppercase tracking-[0.3em] text-stone-500">
+            Intro · {game?.code ?? ''}
+          </p>
+        </header>
+
+        <div className="flex-1 max-w-6xl mx-auto w-full flex flex-col">
+          <p className="text-sm uppercase tracking-[0.4em] text-stone-500 mb-6">
+            {INTRO_QUESTION.title}
+          </p>
+          <h1 className="font-serif text-5xl md:text-7xl leading-[1.05] tracking-tight mb-10">
+            {INTRO_QUESTION.prompt}
+          </h1>
+
+          {!revealed ? (
+            <>
+              <ul className="grid grid-cols-2 gap-4 mb-10">
+                {INTRO_QUESTION.options.map((opt) => (
+                  <li
+                    key={opt}
+                    className="border border-stone-300 px-6 py-5 font-serif text-2xl"
+                  >
+                    {opt}
+                  </li>
+                ))}
+              </ul>
+
+              <div className="mb-8">
+                <div className="flex items-baseline justify-between mb-2">
+                  <p className="text-xs uppercase tracking-widest text-stone-500">
+                    Time
+                  </p>
+                  <p className="font-serif text-3xl">
+                    {Math.ceil(remaining)}s
+                  </p>
+                </div>
+                <div className="h-1 bg-stone-200">
+                  <div
+                    className="h-1 bg-ink transition-[width] duration-300 ease-linear"
+                    style={{ width: `${pct}%` }}
+                  />
+                </div>
+              </div>
+
+              <p className="text-xs uppercase tracking-widest text-stone-500 mb-3">
+                Teams ({submittedBy.size}/{teams.length} locked)
+              </p>
+              <ul className="grid grid-cols-2 md:grid-cols-3 gap-x-8 gap-y-2">
+                {teams.map((t) => (
+                  <li
+                    key={t.id}
+                    className="flex justify-between text-lg py-1 border-b border-stone-200"
+                  >
+                    <span className="font-serif">{t.name}</span>
+                    <span
+                      className={
+                        submittedBy.has(t.id)
+                          ? 'uppercase tracking-widest text-xs text-ink'
+                          : 'uppercase tracking-widest text-xs text-stone-400'
+                      }
+                    >
+                      {submittedBy.has(t.id) ? 'Locked' : 'Waiting'}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : (
+            <>
+              <p className="text-xs uppercase tracking-widest text-stone-500 mb-3">
+                Results
+              </p>
+              <ul className="mb-8 space-y-1">
+                {ranked.map(({ sub, team }, i) => (
+                  <li
+                    key={sub.id}
+                    className="flex justify-between py-3 border-b border-stone-200"
+                  >
+                    <span className="font-serif text-2xl">
+                      <span className="italic text-stone-500 mr-4">
+                        {String(i + 1).padStart(2, '0')}
+                      </span>
+                      {team?.name ?? '—'}
+                    </span>
+                    <span
+                      className={
+                        sub.is_correct
+                          ? 'uppercase tracking-widest text-sm text-ink'
+                          : 'uppercase tracking-widest text-sm text-stone-400'
+                      }
+                    >
+                      {sub.is_correct ? 'Correct' : 'Incorrect'} ·{' '}
+                      {sub.submit_ms != null
+                        ? (sub.submit_ms / 1000).toFixed(1)
+                        : '—'}
+                      s
+                    </span>
+                  </li>
+                ))}
+                {noSub.map((t) => (
+                  <li
+                    key={t.id}
+                    className="flex justify-between py-3 border-b border-stone-200 text-stone-400"
+                  >
+                    <span className="font-serif text-2xl">{t.name}</span>
+                    <span className="uppercase tracking-widest text-sm">
+                      No submission
+                    </span>
+                  </li>
+                ))}
+              </ul>
+
+              {winnerTeam ? (
+                <p className="font-serif italic text-5xl md:text-6xl">
+                  {winnerTeam.name} starts the session.
+                </p>
+              ) : (
+                <p className="font-serif italic text-3xl text-stone-500">
+                  No exact match — host selects the starting team.
+                </p>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    );
+  })();
+
   // ---- Leaderboard view ----
   if (gameState?.show_leaderboard) {
     return (
       <main className="min-h-screen bg-ink text-paper p-12 flex flex-col">
         {audioGate}
         {joinOverlay}
+        {introOverlay}
         <header className="flex justify-between items-start mb-16">
           <Logo size="md" variant="white" />
           <p className="text-sm uppercase tracking-[0.3em] text-stone-400">
@@ -848,6 +1066,7 @@ export default function ScreenPage() {
         <main className="min-h-screen bg-paper text-ink p-12 flex flex-col relative">
           {audioGate}
           {joinOverlay}
+        {introOverlay}
           <header className="flex justify-between items-start mb-12">
             <Logo size="md" />
             <p className="text-sm uppercase tracking-[0.3em] text-stone-500">
@@ -922,6 +1141,7 @@ export default function ScreenPage() {
       <main className="min-h-screen bg-paper text-ink p-12 flex flex-col relative overflow-hidden">
         {audioGate}
         {joinOverlay}
+        {introOverlay}
 
         {/* Archive Sounds Q300: background video behind question content */}
         {asQVid && (
@@ -1181,6 +1401,7 @@ export default function ScreenPage() {
     <main className="min-h-screen bg-paper text-ink p-12 flex flex-col">
       {audioGate}
         {joinOverlay}
+        {introOverlay}
       <header className="flex justify-between items-start mb-12">
         <Logo size="md" />
         <div className="text-right">
