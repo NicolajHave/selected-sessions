@@ -90,7 +90,7 @@ export const FINISH_THE_OUTFIT: Record<number, FtoEntry> = {
       'That I want it that way',
       'Tell me why',
     ],
-    lyricTimings: [10, 15, 19, 25, 29, 36, 41, 45, 49],
+    lyricTimings: [10, 15, 19, 26, 30, 36, 41, 45, 49],
     maskedAnswer: "---'- ------' --- - ---------",
     maskedAnswerTime: 50.5,
     correctAnswer: "Ain't nothin' but a heartache",
