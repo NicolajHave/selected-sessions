@@ -1336,7 +1336,10 @@ export default function PlayPage() {
                   Correct answer
                 </p>
                 <p className="font-serif italic text-2xl">
-                  {sor?.correct ?? sb?.answer ?? currentQuestion.answer}
+                  {sor?.correct ??
+                    sb?.answer ??
+                    as?.answer ??
+                    currentQuestion.answer}
                 </p>
                 {sor?.revealExplanation && (
                   <p className="mt-3 text-sm text-stone-600">
